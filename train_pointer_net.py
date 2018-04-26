@@ -46,6 +46,8 @@ if __name__ == '__main__':
                         type=int, default=50000)
     parser.add_argument('--num_epochs', help='Number of epochs to train',
                         type=int, default=10)
+    parser.add_argument('--num_jobs', type=int, default=1,
+                        help='Number of parallel jobs in loading data')
 
     args = parser.parse_args()
 
@@ -55,6 +57,7 @@ if __name__ == '__main__':
 
     training_iter = load_seq_dataset(
         args.training_path,
+        n_jobs=args.num_jobs,
         max_len=args.max_len,
         use_bucket=args.use_bucket,
         device=device,
@@ -67,6 +70,7 @@ if __name__ == '__main__':
 
     validation_iter = load_seq_dataset(
         args.validation_path,
+        n_jobs=args.num_jobs,
         max_len=args.max_len,
         use_bucket=args.use_bucket,
         device=device,

@@ -8,6 +8,7 @@ from utils import log
 
 default_specials = ['<pad>', 'MISS-SUBJ', 'MISS-OBJ', 'MISS-PREP']
 
+
 def load_vocab(fname, fvocab=None, binary=True, normalize=True,
                specials=default_specials):
     word2vec = KeyedVectors.load_word2vec_format(

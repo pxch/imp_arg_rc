@@ -28,4 +28,5 @@ def get_console_logger(level='info'):
 
     return logger
 
+
 log = get_console_logger()

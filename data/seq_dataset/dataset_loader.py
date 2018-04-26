@@ -7,6 +7,7 @@ from torchtext.data import BucketIterator, Dataset, Field, Iterator
 from utils import log
 from .seq_example import SeqExample
 from collections import Counter
+from joblib import Parallel, delayed
 
 
 input_field = Field(
@@ -47,14 +48,24 @@ seq_fields = [
 ]
 
 
-def read_examples(dataset_path):
+def read_examples_from_file(file_path):
+    log.info('Reading examples from file {}'.format(file_path.name))
+    return [SeqExample.from_text(line)
+            for line in bz2.open(file_path, 'rt').readlines()]
+
+
+def read_examples(dataset_path, n_jobs=1):
     log.info('Reading examples from directory {}'.format(dataset_path))
 
-    examples = []
-    for example_file in sorted(Path(dataset_path).glob('*.bz2')):
-        log.info('Reading examples from file {}'.format(example_file.name))
-        examples.extend([SeqExample.from_text(line) for line in
-                         bz2.open(example_file, 'rt').readlines()])
+    if n_jobs == 1:
+        examples = []
+        for example_file in sorted(Path(dataset_path).glob('*.bz2')):
+            examples.extend(read_examples_from_file(example_file))
+    else:
+        examples_list = Parallel(n_jobs=n_jobs)(
+            delayed(read_examples_from_file)(example_file)
+            for example_file in sorted(Path(dataset_path).glob('*.bz2')))
+        examples = [ex for ex_list in examples_list for ex in ex_list]
 
     log.info('Found {} examples'.format(len(examples)))
     return examples
@@ -79,7 +90,6 @@ def build_dataset(examples, max_len=None, filter_single_candidate=False):
         if filter_single_candidate:
             def filter_pred(example):
                 return len(Counter(example.doc_entity_ids)) > 2
-
 
     dataset = Dataset(examples, seq_fields, filter_pred=filter_pred)
     log.info('Dataset created with {} examples'.format(len(dataset)))
@@ -135,9 +145,10 @@ def build_iterator(
 
 
 def load_seq_dataset(
-        dataset_path, max_len=None, use_bucket=True, device=None, batch_size=32,
-        sort_query=True, train=True, sort_within_batch=True, **kwargs):
-    examples = read_examples(dataset_path)
+        dataset_path, n_jobs=1, max_len=None, use_bucket=True, device=None,
+        batch_size=32, sort_query=True, train=True, sort_within_batch=True,
+        **kwargs):
+    examples = read_examples(dataset_path, n_jobs=n_jobs)
 
     dataset = build_dataset(examples, max_len=max_len)
 
