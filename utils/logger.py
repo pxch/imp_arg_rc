@@ -5,26 +5,40 @@ log_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
 def get_console_logger(level='info'):
     logger = logging.getLogger()
-    if level == 'debug':
-        logger.setLevel(logging.DEBUG)
-    elif level == 'info':
-        logger.setLevel(logging.INFO)
-    elif level == 'warning':
-        logger.setLevel(logging.WARNING)
-    elif level == 'error':
-        logger.setLevel(logging.ERROR)
-    elif level == 'critical':
-        logger.setLevel(logging.CRITICAL)
-    else:
-        logger.setLevel(logging.NOTSET)
+    logger.setLevel(level.upper())
 
     if not logger.handlers:
         # Add handler to log to the console
         sh = logging.StreamHandler()
-        sh.setLevel(logging.DEBUG)
+        sh.setLevel(level.upper())
         sh.setFormatter(log_formatter)
 
         logger.addHandler(sh)
+
+    return logger
+
+
+def add_file_handler(logger, file_path, level='info', exclusive=False):
+    if exclusive:
+        for handler in logger.handlers:
+            logger.removeHandler(handler)
+
+    file_handler = logging.FileHandler(file_path)
+    file_handler.setLevel(level.upper())
+    file_handler.setFormatter(log_formatter)
+    logger.addHandler(file_handler)
+
+
+def get_file_logger(file_path, level='info', propagate=False):
+    logger = logging.getLogger()
+    logger.propagate = propagate
+    logger.setLevel(getattr(logging, level.upper()))
+
+    assert not logger.handlers
+    file_handler = logging.FileHandler(file_path)
+    file_handler.setLevel(level.upper())
+    file_handler.setFormatter(log_formatter)
+    logger.addHandler(file_handler)
 
     return logger
 

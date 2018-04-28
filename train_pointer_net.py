@@ -6,7 +6,7 @@ from torch import optim
 
 from data.seq_dataset import load_seq_dataset
 from model.pointer_net import PointerNet, train_epoch, validate
-from utils import load_vocab, log
+from utils import load_vocab, log, add_file_handler
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -51,10 +51,24 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    # check CUDA device is available
     assert torch.cuda.is_available(), 'No CUDA device found!'
 
     assert 0 <= args.device < torch.cuda.device_count(), \
         'Invalid CUDA device {}'.format(args.device)
+
+    # make sure output path exists
+    output_path = Path(args.output_path)
+    if not output_path.exists():
+        output_path.mkdir(parents=True)
+
+    # only log to a file named {output_path}/log
+    add_file_handler(log, file_path=output_path / 'log', exclusive=True)
+
+    # make sure the directory to save model checkpoints exists
+    checkpoint_path = output_path / 'checkpoints'
+    if not checkpoint_path.exists():
+        checkpoint_path.mkdir(parents=True)
 
     with torch.cuda.device(args.device):
         training_iter = load_seq_dataset(
@@ -129,10 +143,6 @@ if __name__ == '__main__':
         log.info('Initializing {} optimizer with lr = {}'.format(
             args.optimizer, optimizer.defaults['lr']))
 
-        output_path = Path(args.output_path)
-        if not output_path.exists():
-            output_path.mkdir(parents=True)
-
         log.info(
             'Training with regularization = {}, log_every = {}, '
             'val_every = {}'.format(
@@ -157,10 +167,12 @@ if __name__ == '__main__':
                 pointer_net, validation_iter,
                 'After {:3d}/{:3d} epochs'.format(epoch + 1, args.num_epochs))
 
-            model_output_file = output_path / 'epoch-{}-model'.format(epoch + 1)
-            log.info('Save model states to {}'.format(model_output_file))
-            torch.save(pointer_net.state_dict(), model_output_file)
+            model_output_path = \
+                checkpoint_path / 'epoch-{}-model'.format(epoch + 1)
+            log.info('Save model states to {}'.format(model_output_path))
+            torch.save(pointer_net.state_dict(), model_output_path)
 
-            optim_output_file = output_path / 'epoch-{}-optim'.format(epoch + 1)
-            log.info('Save optimizer states to {}'.format(optim_output_file))
-            torch.save(optimizer.state_dict(), optim_output_file)
+            optim_output_path = \
+                checkpoint_path / 'epoch-{}-optim'.format(epoch + 1)
+            log.info('Save optimizer states to {}'.format(optim_output_path))
+            torch.save(optimizer.state_dict(), optim_output_path)
