@@ -1,9 +1,12 @@
 import abc
+import math
+import random
 from typing import List
 
 from torchtext.vocab import Vocab
 
 from common.event_script import Argument, Event, Predicate, Script
+from utils import consts
 from .seq_example import SeqExample
 
 
@@ -36,12 +39,13 @@ class SeqEventComponent(object):
 
 
 class SeqPredicate(SeqEventComponent):
-    def __init__(self, token_id: int):
+    def __init__(self, token_id: int, drop: bool = False):
         super().__init__(token_id, component_id=0)
+        self.drop = drop
 
     @classmethod
     def build(cls, vocab: Vocab, predicate: Predicate, use_lemma=True,
-              include_type=True, use_unk=True):
+              include_type=True, use_unk=True, pred_vocab_count=None):
         word = predicate.get_representation(use_lemma=use_lemma)
         candidates = [word]
         if predicate.prt:
@@ -52,12 +56,22 @@ class SeqPredicate(SeqEventComponent):
         if use_unk:
             candidates.append('UNK')
 
+        # random down-sample predicates with count over 100,000, and mark it
+        # with drop = True
+        drop = False
+        if candidates and pred_vocab_count:
+            pred_count = pred_vocab_count.get(candidates[0], 0)
+            if pred_count > consts.pred_count_thres:
+                if random.random() < 1.0 - math.sqrt(
+                        float(consts.pred_count_thres) / pred_count):
+                    drop = True
+
         if include_type:
             candidates = [cand + '-PRED' for cand in candidates]
 
         token_id = _get_token_id(candidates, vocab, ensure_found=use_unk)
 
-        return cls(token_id)
+        return cls(token_id, drop)
 
     def to_tuple(self):
         return self.token_id, self.component_id
@@ -155,13 +169,16 @@ class SeqEvent(object):
         return not self.__eq__(other)
 
     @classmethod
-    def build(cls, vocab: Vocab, event: Event, use_lemma=True, use_unk=True):
+    def build(cls, vocab: Vocab, event: Event, use_lemma=True, use_unk=True,
+              pred_vocab_count=None, prep_vocab_list=None,
+              filter_repetitive_prep=False):
         seq_pred = SeqPredicate.build(
             vocab=vocab,
             predicate=event.pred,
             use_lemma=use_lemma,
             include_type=True,
-            use_unk=use_unk
+            use_unk=use_unk,
+            pred_vocab_count=pred_vocab_count
         )
 
         seq_arg_list = []
@@ -181,7 +198,17 @@ class SeqEvent(object):
                 arg_type='OBJ',
                 use_unk=use_unk
             ))
+        prep_list = []
         for prep, pobj in event.pobj_list:
+            if prep_vocab_list and prep not in prep_vocab_list:
+                prep = ''
+
+            if filter_repetitive_prep:
+                if prep in prep_list:
+                    continue
+                else:
+                    prep_list.append(prep)
+
             if prep != '':
                 arg_type = 'PREP_' + prep
             else:
@@ -288,15 +315,21 @@ class SeqScript(object):
             self.singleton_processed = False
 
     @classmethod
-    def build(cls, vocab: Vocab, script: Script, use_lemma=True, use_unk=True):
+    def build(cls, vocab: Vocab, script: Script, use_lemma=True, use_unk=True,
+              pred_vocab_count=None, prep_vocab_list=None,
+              filter_repetitive_prep=False):
         seq_event_list = []
         for event in script.events:
-            seq_event_list.append(SeqEvent.build(
+            seq_event = SeqEvent.build(
                 vocab=vocab,
                 event=event,
                 use_lemma=use_lemma,
-                use_unk=use_unk
-            ))
+                use_unk=use_unk,
+                pred_vocab_count=pred_vocab_count,
+                prep_vocab_list=prep_vocab_list,
+                filter_repetitive_prep=filter_repetitive_prep
+            )
+            seq_event_list.append(seq_event)
         return cls(seq_event_list)
 
     def to_list(self):
@@ -316,10 +349,35 @@ class SeqScript(object):
     def from_text(cls, text):
         return cls.from_list(eval(text))
 
-    def get_all_examples(self):
+    def get_all_examples(self, stop_pred_ids=None,
+                         filter_single_candidate=True):
         all_examples = []
-        for query_idx in range(1, len(self.seq_event_list)):
+
+        # start the query from the second not-down-sampled event
+        query_idx_list = [
+            idx for idx, seq_event in enumerate(self.seq_event_list)
+            if not seq_event.seq_pred.drop]
+        query_idx_list = query_idx_list[1:]
+
+        # or start the query from the second event
+        # query_idx_list = [
+        #     idx for idx, seq_event in enumerate(self.seq_event_list)
+        #     if not seq_event.seq_pred.drop and idx > 0]
+
+        for query_idx in query_idx_list:
+            doc_event_list = self.seq_event_list[:query_idx]
+            query_event = self.seq_event_list[query_idx]
+
+            # drop down-sampled predicates
+            if query_event.seq_pred.drop:
+                continue
+
+            # filter stop predicates
+            if stop_pred_ids and query_event.seq_pred.token_id in stop_pred_ids:
+                continue
+
             all_examples.extend(SeqExample.build(
-                doc_event_list=self.seq_event_list[:query_idx],
-                query_event=self.seq_event_list[query_idx]))
+                doc_event_list=doc_event_list,
+                query_event=query_event,
+                filter_single_candidate=filter_single_candidate))
         return all_examples

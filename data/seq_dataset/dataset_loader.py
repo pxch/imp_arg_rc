@@ -2,13 +2,11 @@ import bz2
 from pathlib import Path
 
 import torch
+from joblib import Parallel, delayed
 from torchtext.data import BucketIterator, Dataset, Field, Iterator
 
 from utils import log
 from .seq_example import SeqExample
-from collections import Counter
-from joblib import Parallel, delayed
-
 
 input_field = Field(
     use_vocab=False,
@@ -71,7 +69,7 @@ def read_examples(dataset_path, n_jobs=1):
     return examples
 
 
-def build_dataset(examples, max_len=None, filter_single_candidate=False):
+def build_dataset(examples, max_len=None):
     log.info('Creating Dataset')
 
     filter_pred = None
@@ -79,17 +77,8 @@ def build_dataset(examples, max_len=None, filter_single_candidate=False):
         log.info('Filter examples by length of document input (<= {})'.format(
             max_len))
 
-        if filter_single_candidate:
-            def filter_pred(example):
-                return len(Counter(example.doc_entity_ids)) > 2 and \
-                       len(example.doc_input) <= max_len
-        else:
-            def filter_pred(example):
-                return len(example.doc_input) <= max_len
-    else:
-        if filter_single_candidate:
-            def filter_pred(example):
-                return len(Counter(example.doc_entity_ids)) > 2
+        def filter_pred(example):
+            return len(example.doc_input) <= max_len
 
     dataset = Dataset(examples, seq_fields, filter_pred=filter_pred)
     log.info('Dataset created with {} examples'.format(len(dataset)))

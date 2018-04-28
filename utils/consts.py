@@ -13,3 +13,9 @@ escape_char_map = {
     ':': '@colon@',
     '-': '@dash@',
     '_': '@underscore@'}
+
+# 10 most frequent predicate from training corpus (English Wikipedia 20160901)
+stop_preds = ['have', 'include', 'use', 'make', 'play',
+              'take', 'win', 'give', 'serve', 'receive']
+
+pred_count_thres = 100000

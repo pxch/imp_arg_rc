@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import List
 
 import numpy as np
@@ -30,7 +31,7 @@ class SeqExample(Example):
         return cls(*eval(text))
 
     @classmethod
-    def build(cls, doc_event_list, query_event):
+    def build(cls, doc_event_list, query_event, filter_single_candidate=True):
         examples = []
 
         doc_input = [
@@ -40,6 +41,11 @@ class SeqExample(Example):
         doc_entity_ids = [
             entity_id for seq_event in doc_event_list
             for entity_id in seq_event.entity_id_list()]
+
+        # do not generate examples with a single candidate, when doc_entity_ids
+        # contain only 2 distinct numbers (with a -1 for predicate).
+        if filter_single_candidate and len(Counter(doc_entity_ids)) <= 2:
+            return examples
 
         # softmax_mask = (doc_entity_ids != -1)
 
