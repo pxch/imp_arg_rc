@@ -4,8 +4,7 @@ from pathlib import Path
 
 from common.event_script import ScriptCorpus
 from data.seq_dataset import SeqScript
-from utils import log, read_vocab_count, read_vocab_list
-from utils.vocabulary import load_vocab
+from utils import load_vocab, log, read_vocab_count, read_vocab_list
 
 
 def preprocess_script_corpus(
