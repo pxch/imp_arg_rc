@@ -26,6 +26,8 @@ class PointerNetAttention(nn.Module):
                 out_features=1,
                 bias=False
             )
+        elif self.method == 'dot':
+            pass
         else:
             raise NotImplementedError(
                 '{} attention not implemented'.format(method))
