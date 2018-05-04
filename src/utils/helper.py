@@ -1,6 +1,7 @@
 import bz2
 import gzip
 from collections import Counter
+from pathlib import Path
 
 from utils import consts
 from .logger import log
@@ -24,19 +25,19 @@ def unescape(text, char_set=consts.escape_char_set):
     return text
 
 
-def smart_file_handler(filename, mod='r'):
+def smart_file_handler(filename: Path, mod='r'):
     if mod in ['r', 'w', 'a', 'x']:
         mod += 't'
-    if filename.endswith('bz2'):
+    if filename.suffix == '.bz2':
         f = bz2.open(filename, mod)
-    elif filename.endswith('gz'):
+    elif filename.suffix == '.gz':
         f = gzip.open(filename, mod)
     else:
         f = open(filename, mod)
     return f
 
 
-def read_vocab_count(vocab_count_file):
+def read_vocab_count(vocab_count_file: Path):
     counter = Counter()
     with smart_file_handler(vocab_count_file, 'r') as fin:
         for line in fin.readlines():
@@ -48,7 +49,7 @@ def read_vocab_count(vocab_count_file):
     return counter
 
 
-def read_vocab_list(vocab_list_file):
+def read_vocab_list(vocab_list_file: Path):
     vocab_list = []
     with smart_file_handler(vocab_list_file, 'r') as fin:
         for line in fin.readlines():
