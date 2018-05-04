@@ -1,3 +1,4 @@
+from .helper import convert_corenlp_ner_tag
 from .helper import escape, unescape
 from .helper import read_vocab_list, read_vocab_count
 from .helper import smart_file_handler

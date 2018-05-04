@@ -57,3 +57,7 @@ def read_vocab_list(vocab_list_file: Path):
             if line:
                 vocab_list.append(line)
     return vocab_list
+
+
+def convert_corenlp_ner_tag(tag):
+    return consts.corenlp_to_valid_mapping.get(tag, '')

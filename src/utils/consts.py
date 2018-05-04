@@ -14,6 +14,25 @@ escape_char_map = {
     '-': '@dash@',
     '_': '@underscore@'}
 
+# type of dependency parses to use from Stanford CoreNLP tool
+corenlp_dependency_type = 'enhanced-plus-plus-dependencies'
+
+# mappings from CoreNLP NER tags to valid NER tags
+corenlp_to_valid_mapping = {
+    'PERSON': 'PER',
+    'ORGANIZATION': 'ORG',
+    'LOCATION': 'LOC',
+    'MISC': '',  # 'MISC',
+    'MONEY': 'NUM',
+    'NUMBER': 'NUM',
+    'ORDINAL': 'NUM',
+    'PERCENT': 'NUM',
+    'DATE': 'TEMP',
+    'TIME': 'TEMP',
+    'DURATION': 'TEMP',
+    'SET': 'TEMP'
+}
+
 # 10 most frequent predicate from training corpus (English Wikipedia 20160901)
 stop_preds = ['have', 'include', 'use', 'make', 'play',
               'take', 'win', 'give', 'serve', 'receive']

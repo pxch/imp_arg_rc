@@ -6,7 +6,7 @@ from utils import log
 
 class Dependency(object):
     def __init__(self, label, head_idx, mod_idx, extra=False):
-        self._label = label.encode('ascii', 'ignore')
+        self._label = label.encode('ascii', 'ignore').decode()
         self._head_idx = head_idx
         self._mod_idx = mod_idx
         self._extra = extra

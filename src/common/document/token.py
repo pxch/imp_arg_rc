@@ -6,9 +6,9 @@ from utils import consts, log
 class Token(object):
     def __init__(self, word, lemma, pos, **kwargs):
         # word form of the token
-        self._word = word.encode('ascii', 'ignore')
+        self._word = word.encode('ascii', 'ignore').decode()
         # lemma form of the token
-        self._lemma = lemma.encode('ascii', 'ignore')
+        self._lemma = lemma.encode('ascii', 'ignore').decode()
         # part-of-speech tag of the token
         self._pos = pos
 
