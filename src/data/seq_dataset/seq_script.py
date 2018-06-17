@@ -7,7 +7,9 @@ from torchtext.vocab import Vocab
 
 from common.event_script import Argument, Event, Predicate, Script
 from utils import consts
-from .seq_example import SeqExample
+from .seq_example import SeqExample, SeqExampleMultiArg, SeqExampleMultiSlot
+from .seq_example import SeqExampleMultiHop
+from .seq_example import SeqExampleWithSalience
 
 
 def _get_token_id(candidates, vocab: Vocab, ensure_found=True):
@@ -23,9 +25,10 @@ def _get_token_id(candidates, vocab: Vocab, ensure_found=True):
 
 
 class SeqEventComponent(object):
-    def __init__(self, token_id: int, component_id: int):
+    def __init__(self, token_id: int, component_id: int, wordnum: int):
         self.token_id = token_id
         self.component_id = component_id
+        self.wordnum = wordnum
 
     @abc.abstractmethod
     def to_tuple(self):
@@ -39,8 +42,8 @@ class SeqEventComponent(object):
 
 
 class SeqPredicate(SeqEventComponent):
-    def __init__(self, token_id: int, drop: bool = False):
-        super().__init__(token_id, component_id=0)
+    def __init__(self, token_id: int, wordnum: int, drop: bool = False):
+        super().__init__(token_id, 0, wordnum=wordnum)
         self.drop = drop
 
     @classmethod
@@ -71,15 +74,15 @@ class SeqPredicate(SeqEventComponent):
 
         token_id = _get_token_id(candidates, vocab, ensure_found=use_unk)
 
-        return cls(token_id, drop)
+        return cls(token_id=token_id, wordnum=predicate.wordnum, drop=drop)
 
     def to_tuple(self):
-        return self.token_id, self.component_id
+        return self.token_id, self.component_id, self.wordnum
 
     @classmethod
     def from_tuple(cls, tup):
-        assert len(tup) == 2 and tup[1] == 0
-        return cls(tup[0])
+        assert len(tup) == 3 and tup[1] == 0
+        return cls(token_id=tup[0], wordnum=tup[2], drop=False)
 
     def to_text(self):
         return str(self.to_tuple())
@@ -93,11 +96,15 @@ class SeqPredicate(SeqEventComponent):
 
 
 class SeqArgument(SeqEventComponent):
-    def __init__(self, token_id: int, component_id: int, entity_id: int,
-                 mention_id: int):
-        super().__init__(token_id, component_id)
+    def __init__(self, token_id: int, component_id: int, wordnum: int,
+                 entity_id: int, mention_id: int, mention_type: int):
+        super().__init__(token_id, component_id, wordnum)
         self.entity_id = entity_id
         self.mention_id = mention_id
+        # mention_type must be one of 0 (other), 1 (named), 2 (nominal),
+        # or 3 (pronominal), depending on the POS / NER of the token.
+        assert mention_type in [0, 1, 2, 3]
+        self.mention_type = mention_type
 
     @staticmethod
     def get_candidates(text, arg_type):
@@ -134,16 +141,33 @@ class SeqArgument(SeqEventComponent):
         else:
             raise NotImplementedError
 
-        return cls(token_id, component_id, argument.entity_idx,
-                   argument.mention_idx)
+        # named mention
+        if argument.ner is not '':
+            mention_type = 1
+        # nominal mention
+        elif argument.pos.startswith('NN'):
+            mention_type = 2
+        # pronominal mention
+        elif argument.pos.startswith('PRP'):
+            mention_type = 3
+        # other mention
+        else:
+            mention_type = 0
+
+        return cls(token_id=token_id,
+                   component_id=component_id,
+                   wordnum=argument.wordnum,
+                   entity_id=argument.entity_idx,
+                   mention_id=argument.mention_idx,
+                   mention_type=mention_type)
 
     def to_tuple(self):
-        return self.token_id, self.component_id, self.entity_id, \
-               self.mention_id
+        return self.token_id, self.component_id, self.wordnum, \
+               self.entity_id, self.mention_id, self.mention_type
 
     @classmethod
     def from_tuple(cls, tup):
-        assert len(tup) == 4 and tup[1] in [1, 2, 3]
+        assert len(tup) == 6 and tup[1] in [1, 2, 3] and tup[5] in [0, 1, 2, 3]
         return cls(*tup)
 
     def to_text(self):
@@ -158,9 +182,11 @@ class SeqArgument(SeqEventComponent):
 
 
 class SeqEvent(object):
-    def __init__(self, seq_pred: SeqPredicate, seq_arg_list: List[SeqArgument]):
+    def __init__(self, seq_pred: SeqPredicate, seq_arg_list: List[SeqArgument],
+                 sentnum: int):
         self.seq_pred = seq_pred
         self.seq_arg_list = seq_arg_list
+        self.sentnum = sentnum
 
     def __eq__(self, other):
         return self.to_list() == other.to_list()
@@ -221,18 +247,20 @@ class SeqEvent(object):
                 use_unk=use_unk
             ))
 
-        return cls(seq_pred, seq_arg_list)
+        sentnum = event.pred.sentnum
+        return cls(seq_pred, seq_arg_list, sentnum)
 
     def to_list(self):
-        return [self.seq_pred.to_tuple()] + \
+        return [self.sentnum, self.seq_pred.to_tuple()] + \
                [seq_arg.to_tuple() for seq_arg in self.seq_arg_list]
 
     @classmethod
     def from_list(cls, lst):
-        seq_pred = SeqPredicate.from_tuple(lst[0])
+        sentnum = lst[0]
+        seq_pred = SeqPredicate.from_tuple(lst[1])
         seq_arg_list = \
-            [SeqArgument.from_tuple(t) for t in lst[1:]]
-        return cls(seq_pred, seq_arg_list)
+            [SeqArgument.from_tuple(t) for t in lst[2:]]
+        return cls(seq_pred, seq_arg_list, sentnum)
 
     def to_text(self):
         return str(self.to_list())
@@ -349,8 +377,9 @@ class SeqScript(object):
     def from_text(cls, text):
         return cls.from_list(eval(text))
 
-    def get_all_examples(self, stop_pred_ids=None,
-                         filter_single_candidate=True):
+    def get_all_examples(
+            self, stop_pred_ids=None, filter_single_candidate=True,
+            example_type='normal', filter_single_argument=False):
         all_examples = []
 
         # start the query from the second not-down-sampled event
@@ -364,6 +393,24 @@ class SeqScript(object):
         #     idx for idx, seq_event in enumerate(self.seq_event_list)
         #     if not seq_event.seq_pred.drop and idx > 0]
 
+        if example_type == 'normal':
+            build_fn = SeqExample.build
+        elif example_type == 'multi_arg':
+            build_fn = SeqExampleMultiArg.build
+        elif example_type == 'multi_slot':
+            build_fn = SeqExampleMultiSlot.build
+        elif example_type == 'single_arg':
+            build_fn = SeqExample.build_single
+        elif example_type == 'salience':
+            build_fn = SeqExampleWithSalience.build
+        elif example_type == 'single_arg_salience':
+            build_fn = SeqExampleWithSalience.build_single
+        elif example_type == 'multi_hop':
+            build_fn = SeqExampleMultiHop.build
+        else:
+            raise ValueError('Unrecognized example_type: {}'.format(
+                example_type))
+
         for query_idx in query_idx_list:
             doc_event_list = self.seq_event_list[:query_idx]
             query_event = self.seq_event_list[query_idx]
@@ -376,8 +423,9 @@ class SeqScript(object):
             if stop_pred_ids and query_event.seq_pred.token_id in stop_pred_ids:
                 continue
 
-            all_examples.extend(SeqExample.build(
+            all_examples.extend(build_fn(
                 doc_event_list=doc_event_list,
                 query_event=query_event,
-                filter_single_candidate=filter_single_candidate))
+                filter_single_candidate=filter_single_candidate,
+                filter_single_argument=filter_single_argument))
         return all_examples

@@ -6,7 +6,9 @@ from joblib import Parallel, delayed
 from torchtext.data import BucketIterator, Dataset, Field, Iterator
 
 from utils import log
-from .seq_example import SeqExample
+from .seq_example import SeqExample, SeqExampleMultiArg, SeqExampleMultiSlot
+from .seq_example import SeqExampleMultiHop
+from .seq_example import SeqExampleWithSalience
 
 input_field = Field(
     use_vocab=False,
@@ -29,39 +31,93 @@ target_entity_id_field = Field(
     include_lengths=False
 )
 
-# mask_field = Field(
-#     use_vocab=False,
-#     tensor_type=torch.ByteTensor,
-#     include_lengths=False,
-#     pad_token=0
-# )
+num_mentions_field = Field(
+    use_vocab=False,
+    tensor_type=torch.LongTensor,
+    include_lengths=False,
+    pad_token=0
+)
+
+mask_field = Field(
+    use_vocab=False,
+    tensor_type=torch.ByteTensor,
+    include_lengths=False,
+    pad_token=0
+)
 
 seq_fields = [
     ('doc_input', input_field),
     ('query_input', input_field),
     ('doc_entity_ids', doc_entity_ids_field),
     ('target_entity_id', target_entity_id_field)
-    # ('softmax_mask', mask_field),
-    # ('target_mask', mask_field)
+]
+
+multi_arg_seq_fields = [
+    ('doc_input', input_field),
+    ('query_input', input_field),
+    ('doc_entity_ids', doc_entity_ids_field),
+    ('target_entity_id', target_entity_id_field),
+    ('neg_target_entity_id', target_entity_id_field)
+]
+
+multi_slot_seq_fields = [
+    ('doc_input', input_field),
+    ('query_input', input_field),
+    ('neg_query_input', input_field),
+    ('doc_entity_ids', doc_entity_ids_field),
+    ('target_entity_id', target_entity_id_field)
+]
+
+seq_with_salience_fields = [
+    ('doc_input', input_field),
+    ('query_input', input_field),
+    ('doc_entity_ids', doc_entity_ids_field),
+    ('target_entity_id', target_entity_id_field),
+    ('num_mentions_total', num_mentions_field),
+    ('num_mentions_named', num_mentions_field),
+    ('num_mentions_nominal', num_mentions_field),
+    ('num_mentions_pronominal', num_mentions_field)
+]
+
+multi_hop_seq_fields = [
+    ('doc_input', input_field),
+    ('query_input', input_field),
+    ('doc_entity_ids', doc_entity_ids_field),
+    ('target_entity_id', target_entity_id_field),
+    ('argument_mask', mask_field)
 ]
 
 
-def read_examples_from_file(file_path):
+def read_examples_from_file(file_path, example_type='normal'):
     log.info('Reading examples from file {}'.format(file_path.name))
-    return [SeqExample.from_text(line)
-            for line in bz2.open(file_path, 'rt').readlines()]
+    if example_type == 'normal':
+        read_fn = SeqExample.from_text
+    elif example_type == 'multi_arg':
+        read_fn = SeqExampleMultiArg.from_text
+    elif example_type == 'multi_slot':
+        read_fn = SeqExampleMultiSlot.from_text
+    elif example_type == 'salience':
+        read_fn = SeqExampleWithSalience.from_text
+    elif example_type == 'multi_hop':
+        read_fn = SeqExampleMultiHop.from_text
+    else:
+        raise ValueError(
+            'example_type can only be normal, multi_arg, or multi_slot')
+    return [read_fn(line) for line in bz2.open(file_path, 'rt').readlines()]
 
 
-def read_examples(dataset_path, n_jobs=1):
+def read_examples(dataset_path, example_type='normal', n_jobs=1):
     log.info('Reading examples from directory {}'.format(dataset_path))
 
     if n_jobs == 1:
         examples = []
         for example_file in sorted(Path(dataset_path).glob('*.bz2')):
-            examples.extend(read_examples_from_file(example_file))
+            examples.extend(read_examples_from_file(
+                example_file, example_type=example_type))
     else:
         examples_list = Parallel(n_jobs=n_jobs)(
-            delayed(read_examples_from_file)(example_file)
+            delayed(read_examples_from_file)(
+                example_file, example_type=example_type)
             for example_file in sorted(Path(dataset_path).glob('*.bz2')))
         examples = [ex for ex_list in examples_list for ex in ex_list]
 
@@ -69,7 +125,7 @@ def read_examples(dataset_path, n_jobs=1):
     return examples
 
 
-def build_dataset(examples, max_len=None):
+def build_dataset(examples, example_type='normal', max_len=None):
     log.info('Creating Dataset')
 
     filter_pred = None
@@ -80,7 +136,22 @@ def build_dataset(examples, max_len=None):
         def filter_pred(example):
             return len(example.doc_input) <= max_len
 
-    dataset = Dataset(examples, seq_fields, filter_pred=filter_pred)
+    if example_type == 'normal':
+        fields = seq_fields
+    elif example_type == 'multi_arg':
+        fields = multi_arg_seq_fields
+    elif example_type == 'multi_slot':
+        fields = multi_slot_seq_fields
+    elif example_type == 'salience':
+        fields = seq_with_salience_fields
+    elif example_type == 'multi_hop':
+        fields = multi_hop_seq_fields
+    else:
+        raise ValueError(
+            'example_type can only be normal, multi_arg, or multi_slot')
+
+    dataset = Dataset(examples, fields, filter_pred=filter_pred)
+
     log.info('Dataset created with {} examples'.format(len(dataset)))
     return dataset
 
@@ -134,12 +205,14 @@ def build_iterator(
 
 
 def load_seq_dataset(
-        dataset_path, n_jobs=1, max_len=None, use_bucket=True, device=None,
-        batch_size=32, sort_query=True, train=True, sort_within_batch=True,
-        **kwargs):
-    examples = read_examples(dataset_path, n_jobs=n_jobs)
+        dataset_path, example_type='normal', n_jobs=1, max_len=None,
+        use_bucket=True, device=None, batch_size=32, sort_query=True,
+        train=True, sort_within_batch=True, **kwargs):
+    examples = read_examples(
+        dataset_path, example_type=example_type, n_jobs=n_jobs)
 
-    dataset = build_dataset(examples, max_len=max_len)
+    dataset = build_dataset(
+        examples, example_type=example_type, max_len=max_len)
 
     iterator = build_iterator(
         dataset, use_bucket=use_bucket, device=device, batch_size=batch_size,
