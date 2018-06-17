@@ -6,8 +6,9 @@ from .token import Token
 
 
 class Predicate(Token):
-    def __init__(self, word, lemma, pos, neg=False, prt=''):
-        super(Predicate, self).__init__(word, lemma, pos)
+    def __init__(self, word, lemma, pos, sentnum=-1, wordnum=-1,
+                 neg=False, prt=''):
+        super(Predicate, self).__init__(word, lemma, pos, sentnum, wordnum)
 
         # whether the predicate is negated, default is False
         assert type(neg) == bool, 'neg must be a boolean value'
@@ -49,7 +50,7 @@ class Predicate(Token):
             text = 'not//' + text
         if self.prt != '':
             text += '//' + escape(self.prt)
-        return text
+        return '{}-{}-{}'.format(self.sentnum, self.wordnum, text)
 
     pred_re = re.compile(
         r'^((?P<neg>not)(?://))?(?P<word>[^/]*)/(?P<lemma>[^/]*)/(?P<pos>[^/]*)'
@@ -67,7 +68,7 @@ class Predicate(Token):
         neg = True if groups['neg'] is not None else False
         prt = unescape(groups['prt']) if groups['prt'] is not None else ''
 
-        return cls(word, lemma, pos, neg, prt)
+        return cls(word, lemma, pos, neg=neg, prt=prt)
 
     @classmethod
     def from_token(cls, token: document.Token, **kwargs):
@@ -83,4 +84,7 @@ class Predicate(Token):
         assert 'prt' in kwargs, 'prt must be provided when creating Predicate'
         prt = kwargs['prt']
 
-        return cls(word, lemma, pos, neg, prt)
+        sentnum = token.sent_idx
+        wordnum = token.token_idx
+
+        return cls(word, lemma, pos, sentnum, wordnum, neg, prt)

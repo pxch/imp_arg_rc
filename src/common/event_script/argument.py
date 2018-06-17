@@ -9,8 +9,9 @@ from .token import Token
 
 
 class Argument(Token):
-    def __init__(self, word, lemma, pos, ner='', entity_idx=-1, mention_idx=-1):
-        super(Argument, self).__init__(word, lemma, pos)
+    def __init__(self, word, lemma, pos, sentnum=-1, wordnum=-1,
+                 ner='', entity_idx=-1, mention_idx=-1):
+        super(Argument, self).__init__(word, lemma, pos, sentnum, wordnum)
 
         # name entity tag of the argument, default is empty
         assert ner in consts.valid_ner_tags or ner == '', \
@@ -97,7 +98,7 @@ class Argument(Token):
         text += '/{}'.format(self.ner if self.ner != '' else 'NONE')
         if self.has_entity():
             text += '//entity-{}-{}'.format(self.entity_idx, self.mention_idx)
-        return text
+        return '{}-{}-{}'.format(self.sentnum, self.wordnum, text)
 
     arg_re = re.compile(
         r'^(?P<word>[^/]*)/(?P<lemma>[^/]*)/(?P<pos>[^/]*)/(?P<ner>[^/]*)'
@@ -117,7 +118,8 @@ class Argument(Token):
         mention_idx = \
             int(groups['mention_idx']) if groups['mention_idx'] else -1
 
-        return cls(word, lemma, pos, ner, entity_idx, mention_idx)
+        return cls(word, lemma, pos,
+                   ner=ner, entity_idx=entity_idx, mention_idx=mention_idx)
 
     @classmethod
     def from_token(cls, token: document.Token):
@@ -128,4 +130,8 @@ class Argument(Token):
         entity_idx = token.coref_idx()
         mention_idx = token.mention_idx()
 
-        return cls(word, lemma, pos, ner, entity_idx, mention_idx)
+        sentnum = token.sent_idx
+        wordnum = token.token_idx
+
+        return cls(word, lemma, pos, sentnum, wordnum,
+                   ner, entity_idx, mention_idx)

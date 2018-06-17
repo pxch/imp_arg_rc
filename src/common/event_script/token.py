@@ -5,10 +5,13 @@ from utils import escape, unescape
 
 
 class Token(object):
-    def __init__(self, word, lemma, pos):
+    def __init__(self, word, lemma, pos, sentnum=-1, wordnum=-1):
         self._word = word
         self._lemma = lemma
         self._pos = pos
+
+        self.sentnum = sentnum
+        self.wordnum = wordnum
 
     @property
     def word(self):
@@ -65,4 +68,7 @@ class Token(object):
         lemma = token.lemma
         pos = token.pos
 
-        return cls(word, lemma, pos)
+        sentnum = token.sent_idx
+        wordnum = token.token_idx
+
+        return cls(word, lemma, pos, sentnum, wordnum)
