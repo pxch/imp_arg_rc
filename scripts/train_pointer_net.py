@@ -19,6 +19,10 @@ if __name__ == '__main__':
                         help='Disable CUDA')
     parser.add_argument('--log_to_file', action='store_true',
                         help='Log to file rather than stream output')
+    parser.add_argument('--example_type', default='normal',
+                        help='type of examples in dataset, can be one of '
+                             'normal (default), multi_arg, multi_slot, '
+                             'or multi_hop')
     parser.add_argument('--max_len', help='maximum length of document allowed',
                         type=int, default=100)
     parser.add_argument('--batch_size', help='Number of examples in minibatch',
@@ -32,6 +36,9 @@ if __name__ == '__main__':
                         type=int, default=100)
     parser.add_argument('--num_layers', help='Number of layers in GRU',
                         type=int, default=1)
+    parser.add_argument('--query_num_layers', type=int,
+                        help='Number of layers in query encoder GRU, '
+                             'if different from num_layers')
     parser.add_argument('--dropout', help='Dropout rate for encoder',
                         type=float, default=0.2)
     parser.add_argument('--attention', default='general',
@@ -39,8 +46,7 @@ if __name__ == '__main__':
                              'dot, general (default), concat')
     parser.add_argument('--optimizer', help='Optimization method',
                         default='adam')
-    parser.add_argument('--lr', help='Learning rate for optimizer',
-                        type=float, default=0.001)
+    parser.add_argument('--lr', help='Learning rate for optimizer', type=float)
     parser.add_argument('--regularization', help='Regularization rate',
                         type=float, default=0.0)
     parser.add_argument('--log_every',
@@ -53,6 +59,45 @@ if __name__ == '__main__':
                         type=int, default=10)
     parser.add_argument('--num_jobs', type=int, default=1,
                         help='Number of parallel jobs in loading data')
+    parser.add_argument('--load_model_state',
+                        help='path to state dict file to load pretrained model')
+    parser.add_argument('--load_optimizer_state',
+                        help='path to state dict file to load optimizer state')
+    parser.add_argument('--objective_type',
+                        help='type of objective function in training, can be '
+                             'either normal or multi_arg, if not specified, '
+                             'default to be the same as example_type')
+    parser.add_argument('--use_salience', action='store_true',
+                        help='if turned on, use salience features in model')
+    parser.add_argument('--salience_vocab_size', type=int,
+                        help='size of salience vocab (max_num_mentions + 1), '
+                             'leave blank to use numerical features')
+    parser.add_argument('--salience_embedding_size', type=int,
+                        help='embedding size of salience features, leave blank '
+                             'to use numerical features')
+    parser.add_argument('--use_self_attention', action='store_true',
+                        help='use self attention on document encoder')
+    parser.add_argument('--max_grad_norm', type=float, default=1.0,
+                        help='maximum gradient norm in gradient clipping')
+    parser.add_argument('--rescale_attn_energy', action='store_true',
+                        help='rescale dot / general attention energy')
+    parser.add_argument('--backward_with_attn_loss', action='store_true',
+                        help='compute gradient with the extra attention loss')
+    parser.add_argument('--extra_query_linear', action='store_true',
+                        help='add an extra linear mapping to query '
+                             'hidden state in multi_hop models')
+    parser.add_argument('--extra_doc_encoder', action='store_true',
+                        help='use another layer of doc encoder for the second '
+                             'layer of attention in multi_hop models')
+    parser.add_argument('--query_aware', action='store_true',
+                        help='concat query hidden state to the input of the '
+                             'second layer of doc encoder')
+    parser.add_argument('--use_sum', action='store_true',
+                        help='use the sum of all correct attention scores '
+                             'in computing loss function')
+    parser.add_argument('--use_sigmoid', action='store_true',
+                        help='use sigmoid of attention energies in computing '
+                             'loss function')
 
     args = parser.parse_args()
 
@@ -76,6 +121,7 @@ if __name__ == '__main__':
 
     training_iter = load_seq_dataset(
         args.training_path,
+        example_type=args.example_type,
         n_jobs=args.num_jobs,
         max_len=args.max_len,
         use_bucket=args.use_bucket,
@@ -89,6 +135,7 @@ if __name__ == '__main__':
 
     validation_iter = load_seq_dataset(
         args.validation_path,
+        example_type=args.example_type,
         n_jobs=args.num_jobs,
         max_len=args.max_len,
         use_bucket=args.use_bucket,
@@ -104,23 +151,47 @@ if __name__ == '__main__':
     fvocab = word2vec_dir / (args.word2vec_name + '.vocab')
     assert fname.exists() and fvocab.exists()
 
-    vocab = load_vocab(fname=str(fname), fvocab=str(fvocab))
+    if args.example_type == 'multi_hop':
+        vocab = load_vocab(fname=str(fname), fvocab=str(fvocab),
+                           use_target_specials=True)
+    else:
+        vocab = load_vocab(fname=str(fname), fvocab=str(fvocab))
+
     vocab_size, input_size = vocab.vectors.shape
+
+    multi_hop = (args.example_type == 'multi_hop')
 
     log.info(
         'Initializing pointer network with vocab_size = {}, input_size = {}, '
-        'hidden_size = {}, num_layers = {}, dropout = {}, '
-        'attention_method = {}'.format(
+        'hidden_size = {}, num_layers = {}, query_num_layers = {}, '
+        'dropout = {}, use_self_attention = {}, attention_method = {}, '
+        'rescale_attn_energy = {}, use_salience = {}, '
+        'salience_vocab_size = {}, salience_embedding_size = {}, '
+        'multi_hop = {}, extra_query_linear = {}, extra_doc_encoder = {}, '
+        'query_aware = {}'.format(
             vocab_size, input_size, args.hidden_size, args.num_layers,
-            args.dropout, args.attention))
+            args.query_num_layers, args.dropout, args.use_self_attention,
+            args.attention, args.rescale_attn_energy, args.use_salience,
+            args.salience_vocab_size, args.salience_embedding_size, multi_hop,
+            args.extra_query_linear, args.extra_doc_encoder, args.query_aware))
     pointer_net = PointerNet(
         vocab_size=vocab_size,
         input_size=input_size,
         hidden_size=args.hidden_size,
         num_layers=args.num_layers,
+        query_num_layers=args.query_num_layers,
         bidirectional=True,
         dropout_p=args.dropout,
-        attn_method=args.attention
+        use_self_attention=args.use_self_attention,
+        attn_method=args.attention,
+        rescale_attn_energy=args.rescale_attn_energy,
+        use_salience=args.use_salience,
+        salience_vocab_size=args.salience_vocab_size,
+        salience_embedding_size=args.salience_embedding_size,
+        multi_hop=multi_hop,
+        extra_query_linear=args.extra_query_linear,
+        extra_doc_encoder=args.extra_doc_encoder,
+        query_aware=args.query_aware
     )
     log.info('Initializing embedding layer with pretrained word vectors.')
     pointer_net.init_embedding(vocab.vectors)
@@ -130,6 +201,13 @@ if __name__ == '__main__':
         pointer_net.cuda()
 
     log.info('Model specifications:\n{}'.format(pointer_net))
+
+    if args.load_model_state:
+        log.info('Loading pretrained model parameters from {}'.format(
+            args.load_model_state))
+        pointer_net.load_state_dict(torch.load(
+            args.load_model_state,
+            map_location=lambda storage, loc: storage.cuda(0)))
 
     optim_dict = {
         'adadelta': optim.Adadelta,
@@ -142,19 +220,42 @@ if __name__ == '__main__':
     if args.optimizer == 'sgd':
         optimizer = optim.SGD(pointer_net.parameters(), lr=args.lr)
     elif args.optimizer in optim_dict:
-        optimizer = optim_dict[args.optimizer](pointer_net.parameters())
+        if args.lr:
+            optimizer = optim_dict[args.optimizer](
+                pointer_net.parameters(), lr=args.lr)
+        else:
+            optimizer = optim_dict[args.optimizer](
+                pointer_net.parameters())
     else:
         raise NotImplementedError()
 
     log.info('Initializing {} optimizer with lr = {}'.format(
         args.optimizer, optimizer.defaults['lr']))
 
-    log.info(
-        'Training with regularization = {}, log_every = {}, '
-        'val_every = {}'.format(
-            args.regularization, args.log_every, args.val_every))
+    if args.load_optimizer_state:
+        log.info('Loading optimizer state from {}'.format(
+            args.load_optimizer_state))
+        optimizer.load_state_dict(torch.load(
+            args.load_optimizer_state,
+            map_location=lambda storage, loc: storage.cuda(0)))
 
-    validate(pointer_net, validation_iter, 'Before training')
+    if not args.objective_type:
+        objective_type = args.example_type
+    else:
+        objective_type = args.objective_type
+    assert objective_type in [
+        'normal', 'multi_arg', 'multi_slot', 'multi_hop', 'max_margin']
+
+    log.info(
+        'Training with objective_type = {}, backward_with_attn_loss = {}, '
+        'regularization = {}, max_grad_norm = {}, log_every = {}, '
+        'val_every = {}, use_sum = {}, use_sigmoid = {}'.format(
+            objective_type, args.backward_with_attn_loss, args.regularization,
+            args.max_grad_norm, args.log_every, args.val_every, args.use_sum,
+            args.use_sigmoid))
+
+    validate(pointer_net, validation_iter, objective_type=objective_type,
+             msg='Before training')
 
     for epoch in range(args.num_epochs):
         log.info('Start training epoch {:3d}/{:3d}'.format(
@@ -164,14 +265,19 @@ if __name__ == '__main__':
             training_iter=training_iter,
             validation_iter=validation_iter,
             optimizer=optimizer,
+            objective_type=objective_type,
+            backward_with_attn_loss=args.backward_with_attn_loss,
             regularization=args.regularization,
             log_every=args.log_every,
-            val_every=args.val_every
+            val_every=args.val_every,
+            max_grad_norm=args.max_grad_norm,
+            use_sum=args.use_sum,
+            use_sigmoid=args.use_sigmoid
         )
 
         validate(
-            pointer_net, validation_iter,
-            'After {:3d}/{:3d} epochs'.format(epoch + 1, args.num_epochs))
+            pointer_net, validation_iter, objective_type=objective_type,
+            msg='After {:3d}/{:3d} epochs'.format(epoch + 1, args.num_epochs))
 
         model_output_path = \
             checkpoint_path / 'epoch-{}-model'.format(epoch + 1)
