@@ -1,11 +1,9 @@
 from copy import deepcopy
 
-import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import optim
-from torch.autograd import Variable
-from torch.nn.utils import clip_grad_norm
+from torch.nn.utils import clip_grad_norm_
 
 from utils import log
 from .helper import compute_f1
@@ -38,14 +36,14 @@ def compute_batch_loss(pointer_net, batch, regularization=0.0, predict=False,
     if pointer_net.use_salience:
         if pointer_net.salience_vocab_size:
             max_num_mentions = pointer_net.salience_vocab_size - 1
-            kwargs['num_mentions_total'] = torch.clamp(
-                batch.num_mentions_total, min=0, max=max_num_mentions)
-            kwargs['num_mentions_named'] = torch.clamp(
-                batch.num_mentions_named, min=0, max=max_num_mentions)
-            kwargs['num_mentions_nominal'] = torch.clamp(
-                batch.num_mentions_nominal, min=0, max=max_num_mentions)
-            kwargs['num_mentions_pronominal'] = torch.clamp(
-                batch.num_mentions_pronominal, min=0, max=max_num_mentions)
+            kwargs['num_mentions_total'] = \
+                batch.num_mentions_total.clamp(min=0, max=max_num_mentions)
+            kwargs['num_mentions_named'] = \
+                batch.num_mentions_named.clamp(min=0, max=max_num_mentions)
+            kwargs['num_mentions_nominal'] = \
+                batch.num_mentions_nominal.clamp(min=0, max=max_num_mentions)
+            kwargs['num_mentions_pronominal'] = \
+                batch.num_mentions_pronominal.clamp(min=0, max=max_num_mentions)
         else:
             kwargs['num_mentions_total'] = batch.num_mentions_total
             kwargs['num_mentions_named'] = batch.num_mentions_named
@@ -73,7 +71,7 @@ def compute_batch_loss(pointer_net, batch, regularization=0.0, predict=False,
         )
 
     max_dice_scores = batch.dice_scores.max(dim=0)[0].unsqueeze(0)
-    target_mask = (batch.dice_scores == max_dice_scores)
+    target_mask = batch.dice_scores.eq(max_dice_scores)
 
     masked_attn = attn * target_mask.float()
 
@@ -114,28 +112,29 @@ def compute_batch_loss(pointer_net, batch, regularization=0.0, predict=False,
     if predict:
         if predict_entity:
             predicted_entity_ids = \
-                np.zeros(batch.batch_size, dtype=np.dtype(int))
+                batch.doc_entity_ids.new_zeros(1, batch.batch_size)
 
             for ex_idx in range(batch.batch_size):
                 doc_entity_ids = batch.doc_entity_ids[:, ex_idx]
-                unique_entity_ids = torch.from_numpy(
-                    np.unique(doc_entity_ids.data.cpu().numpy()))
+                # torch.unique() is now cpu-only
+                unique_entity_ids = \
+                    torch.unique(doc_entity_ids.cpu()).to(doc_entity_ids)
 
                 entity_attn_score_mapping = []
                 for entity_id in unique_entity_ids:
-                    entity_id_mask = (doc_entity_ids == entity_id).float()
+                    entity_id_mask = doc_entity_ids.eq(entity_id).float()
                     entity_attn_score = \
-                        (attn[:, ex_idx] * entity_id_mask).sum().data[0]
+                        (attn[:, ex_idx] * entity_id_mask).sum().item()
                     entity_attn_score_mapping.append(
                         (entity_attn_score, entity_id))
 
-                predicted_entity_ids[ex_idx] = \
+                predicted_entity_ids[0, ex_idx] = \
                     max(entity_attn_score_mapping)[1]
 
-            predicted_entity_ids = Variable(
-                torch.from_numpy(predicted_entity_ids).cuda().unsqueeze(0))
+            # predicted_entity_ids = \
+            #     torch.from_numpy(predicted_entity_ids).cuda().unsqueeze(0)
 
-            entity_mask = (batch.doc_entity_ids == predicted_entity_ids)
+            entity_mask = batch.doc_entity_ids.eq(predicted_entity_ids)
             predicted_dice_scores = \
                 (batch.dice_scores * entity_mask.float()).max(dim=0)[0]
 
@@ -162,12 +161,12 @@ def validate(pointer_net, val_iter, multi_hop=False, predict_entity=False):
             pointer_net, batch, regularization=0.0, predict=True,
             multi_hop=multi_hop, predict_entity=predict_entity)
         if multi_hop:
-            val_loss += loss[0].data[0]
-            val_attn_loss += loss[1].data[0]
+            val_loss += loss[0].item()
+            val_attn_loss += loss[1].item()
         else:
-            val_loss += loss.data[0]
+            val_loss += loss.item()
 
-        val_score += predicted_dice_scores.sum().data[0]
+        val_score += predicted_dice_scores.sum().item()
 
     val_loss /= len(val_iter)
     if multi_hop:
@@ -193,10 +192,10 @@ def train_epoch(pointer_net, train_iter, optimizer, regularization=0.0,
             multi_hop=multi_hop, max_margin=max_margin, use_sum=use_sum)
 
         if multi_hop:
-            training_loss += loss[0].data[0]
-            training_attn_loss += loss[1].data[0]
+            training_loss += loss[0].item()
+            training_attn_loss += loss[1].item()
         else:
-            training_loss += loss.data[0]
+            training_loss += loss.item()
 
         optimizer.zero_grad()
 
@@ -208,7 +207,7 @@ def train_epoch(pointer_net, train_iter, optimizer, regularization=0.0,
         loss.backward()
 
         if max_grad_norm:
-            clip_grad_norm(pointer_net.parameters(), max_norm=max_grad_norm)
+            clip_grad_norm_(pointer_net.parameters(), max_norm=max_grad_norm)
         optimizer.step()
 
     training_loss /= len(train_iter)

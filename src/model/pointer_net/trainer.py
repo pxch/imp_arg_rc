@@ -2,7 +2,7 @@ from collections import Counter
 
 import torch
 import torch.nn.functional as F
-from torch.nn.utils import clip_grad_norm
+from torch.nn.utils import clip_grad_norm_
 
 from utils import log
 from copy import deepcopy
@@ -23,14 +23,14 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
     if pointer_net.use_salience:
         if pointer_net.salience_vocab_size:
             max_num_mentions = pointer_net.salience_vocab_size - 1
-            kwargs['num_mentions_total'] = torch.clamp(
-                batch.num_mentions_total, min=0, max=max_num_mentions)
-            kwargs['num_mentions_named'] = torch.clamp(
-                batch.num_mentions_named, min=0, max=max_num_mentions)
-            kwargs['num_mentions_nominal'] = torch.clamp(
-                batch.num_mentions_nominal, min=0, max=max_num_mentions)
-            kwargs['num_mentions_pronominal'] = torch.clamp(
-                batch.num_mentions_pronominal, min=0, max=max_num_mentions)
+            kwargs['num_mentions_total'] = \
+                batch.num_mentions_total.clamp(min=0, max=max_num_mentions)
+            kwargs['num_mentions_named'] = \
+                batch.num_mentions_named.clamp(min=0, max=max_num_mentions)
+            kwargs['num_mentions_nominal'] = \
+                batch.num_mentions_nominal.clamp(min=0, max=max_num_mentions)
+            kwargs['num_mentions_pronominal'] = \
+                batch.num_mentions_pronominal.clamp(min=0, max=max_num_mentions)
         else:
             kwargs['num_mentions_total'] = batch.num_mentions_total
             kwargs['num_mentions_named'] = batch.num_mentions_named
@@ -77,7 +77,7 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
     if use_sigmoid:
         attn = torch.sigmoid(attn) * softmax_mask.float()
 
-    target_mask = (batch.doc_entity_ids == batch.target_entity_id.unsqueeze(0))
+    target_mask = batch.doc_entity_ids.eq(batch.target_entity_id.unsqueeze(0))
 
     masked_attn = attn * target_mask.float()
 
@@ -107,7 +107,7 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
 
     if objective_type == 'multi_arg':
         neg_target_mask = \
-            (batch.doc_entity_ids == batch.neg_target_entity_id.unsqueeze(0))
+            batch.doc_entity_ids.eq(batch.neg_target_entity_id.unsqueeze(0))
         neg_masked_attn = attn * neg_target_mask.float()
 
         if use_sum:
@@ -132,7 +132,7 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
 
     if objective_type == 'max_margin':
         neg_target_mask = \
-            (batch.doc_entity_ids != batch.target_entity_id.unsqueeze(0))
+            batch.doc_entity_ids.ne(batch.target_entity_id.unsqueeze(0))
         neg_target_mask = neg_target_mask * softmax_mask
 
         neg_masked_attn = attn * neg_target_mask.float()
@@ -147,7 +147,7 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
     if predict:
         max_indices = attn.max(dim=0)[1].unsqueeze(0)
         predicted = batch.doc_entity_ids.gather(index=max_indices, dim=0)
-        predicted = predicted.squeeze()
+        predicted = predicted.squeeze(0)
         return loss, predicted
     else:
         return loss
@@ -167,12 +167,12 @@ def validate(pointer_net, validation_iter, objective_type='normal', msg=''):
             pointer_net, batch, objective_type=objective_type,
             regularization=0, predict=True)
         if objective_type == 'multi_hop':
-            val_loss += loss[0].data[0]
-            val_attn_loss += loss[1].data[0]
+            val_loss += loss[0].item()
+            val_attn_loss += loss[1].item()
         else:
-            val_loss += loss.data[0]
+            val_loss += loss.item()
 
-        num_correct += (predicted == batch.target_entity_id).sum().data[0]
+        num_correct += predicted.eq(batch.target_entity_id).float().sum().item()
         num_total += batch.batch_size
 
     val_loss /= len(validation_iter)
@@ -218,12 +218,12 @@ def evaluate(pointer_net, evaluation_iter, report_entity_freq=False,
             objective_type=objective_type)
 
         if multi_hop:
-            val_loss += loss[0].data[0]
+            val_loss += loss[0].item()
         else:
-            val_loss += loss.data[0]
+            val_loss += loss.item()
 
         # num_correct['all'] += \
-        #     (predicted == batch.target_entity_id).sum().data[0]
+        #     (predicted == batch.target_entity_id).sum().item()
         # num_total['all'] += batch.batch_size
 
         for idx in range(batch.batch_size):
@@ -231,32 +231,32 @@ def evaluate(pointer_net, evaluation_iter, report_entity_freq=False,
             pos = ''
             if multi_hop:
                 for token_id in query:
-                    if token_id.data[0] == 4:
+                    if token_id.item() == 4:
                         pos = 'subj'
                         break
-                    elif token_id.data[0] == 5:
+                    elif token_id.item() == 5:
                         pos = 'dobj'
                         break
-                    elif token_id.data[0] == 6:
+                    elif token_id.item() == 6:
                         pos = 'pobj'
                         break
             else:
                 for token_id in query:
-                    if token_id.data[0] == 1:
+                    if token_id.item() == 1:
                         pos = 'subj'
                         break
-                    elif token_id.data[0] == 2:
+                    elif token_id.item() == 2:
                         pos = 'dobj'
                         break
-                    elif token_id.data[0] == 3:
+                    elif token_id.item() == 3:
                         pos = 'pobj'
                         break
 
             num_total['all'] += 1
             num_total[pos] += 1
 
-            correct = (predicted[idx].data[0] ==
-                       batch.target_entity_id[idx].data[0])
+            correct = (predicted[idx].item() ==
+                       batch.target_entity_id[idx].item())
             results.append(int(correct))
 
             if correct:
@@ -265,8 +265,8 @@ def evaluate(pointer_net, evaluation_iter, report_entity_freq=False,
 
             if report_entity_freq:
                 entity_freq = \
-                    Counter(batch.doc_entity_ids[:, idx].data)[
-                        batch.target_entity_id[idx].data[0]]
+                    Counter(batch.doc_entity_ids[:, idx].detach())[
+                        batch.target_entity_id[idx].item()]
 
                 if entity_freq > 10:
                     entity_freq = 10
@@ -304,10 +304,10 @@ def train_epoch(pointer_net, training_iter, validation_iter, optimizer,
             use_sigmoid=use_sigmoid)
 
         if objective_type == 'multi_hop':
-            training_loss += loss[0].data[0]
-            training_attn_loss += loss[1].data[0]
+            training_loss += loss[0].item()
+            training_attn_loss += loss[1].item()
         else:
-            training_loss += loss.data[0]
+            training_loss += loss.item()
 
         optimizer.zero_grad()
 
@@ -318,7 +318,7 @@ def train_epoch(pointer_net, training_iter, validation_iter, optimizer,
                 loss = loss[0]
         loss.backward()
 
-        clip_grad_norm(pointer_net.parameters(), max_norm=max_grad_norm)
+        clip_grad_norm_(pointer_net.parameters(), max_norm=max_grad_norm)
 
         optimizer.step()
 

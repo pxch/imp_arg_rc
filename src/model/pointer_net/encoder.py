@@ -1,6 +1,5 @@
 import torch
 from torch import nn
-from torch.autograd import Variable
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from .attention import SelfAttention
@@ -26,7 +25,7 @@ class Encoder(nn.Module):
             input_size=self.input_size,
             hidden_size=self.hidden_size,
             num_layers=self.num_layers,
-            dropout=self.dropout_p,
+            dropout=self.dropout_p if self.num_layers > 1 else 0,
             bidirectional=self.bidirectional
         )
 
@@ -102,9 +101,9 @@ class SelfAttentiveEncoder(nn.Module):
     def get_mask_for_self_attention(self, input_lengths, max_len):
         indices = torch.arange(0, max_len).expand(max_len, -1).unsqueeze(0)
         indices = indices.type_as(input_lengths)
-        mask = (indices < input_lengths.unsqueeze(1).unsqueeze(2)).float()
+        mask = indices.lt(input_lengths.unsqueeze(1).unsqueeze(2)).float()
         mask = (mask - torch.eye(max_len).type_as(mask)).clamp(min=0)
-        return Variable(mask)
+        return mask
 
     # inputs: L * B * d
     # input_lengths: B (LongTensor)
