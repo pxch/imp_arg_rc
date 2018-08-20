@@ -243,8 +243,15 @@ if __name__ == '__main__':
         objective_type = args.example_type
     else:
         objective_type = args.objective_type
+
+    if args.use_self_attention:
+        objective_type = 'self_attn'
+        log.info('Forced to use self_attn as objective_type '
+                 'when use_self_attention is True')
+
     assert objective_type in [
-        'normal', 'multi_arg', 'multi_slot', 'multi_hop', 'max_margin']
+        'normal', 'multi_arg', 'multi_slot', 'multi_hop', 'max_margin',
+        'self_attn']
 
     log.info(
         'Training with objective_type = {}, backward_with_attn_loss = {}, '

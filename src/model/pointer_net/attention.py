@@ -156,7 +156,4 @@ class SelfAttention(nn.Module):
 
         # attn = F.softmax(torch.log(torch.exp(energy) * softmax_mask), dim=2)
 
-        attention_outputs = \
-            torch.bmm(attn, encoder_outputs.transpose(0, 1)).transpose(0, 1)
-
-        return attention_outputs
+        return attn

@@ -98,11 +98,18 @@ class SelfAttentiveEncoder(nn.Module):
             )
             setattr(self, gru_layer_name, gru_layer)
 
-    def get_mask_for_self_attention(self, input_lengths, max_len):
+    @staticmethod
+    def get_mask_for_self_attention(input_lengths, max_len):
         indices = torch.arange(0, max_len).expand(max_len, -1).unsqueeze(0)
-        indices = indices.type_as(input_lengths)
+        indices = indices.to(input_lengths)
         mask = indices.lt(input_lengths.unsqueeze(1).unsqueeze(2)).float()
-        mask = (mask - torch.eye(max_len).type_as(mask)).clamp(min=0)
+        indices_2 = torch.arange(0, max_len).view(-1, 1).expand(
+            max_len, max_len).unsqueeze(0)
+        indices_2 = indices_2.to(input_lengths)
+        mask_2 = indices_2.lt(input_lengths.unsqueeze(1).unsqueeze(2)).float()
+        mask = mask * mask_2
+        # we should allow self-attention to put some weight on itself, right?
+        # mask = (mask - torch.eye(max_len).type_as(mask)).clamp(min=0)
         return mask
 
     # inputs: L * B * d
@@ -131,6 +138,8 @@ class SelfAttentiveEncoder(nn.Module):
         gru_outputs, final_hidden = SelfAttentiveEncoder.forward_gru_layer(
             self.gru_0, gru_inputs, input_lengths)
 
+        attn = None
+
         max_len = input_embeddings.size(0)
         self_attention_softmax_mask = self.get_mask_for_self_attention(
             input_lengths, max_len)
@@ -138,8 +147,10 @@ class SelfAttentiveEncoder(nn.Module):
         for layer_idx in range(1, self.num_layers):
             attn_layer = getattr(self, 'attn_{}'.format(layer_idx))
 
-            attn_outputs = attn_layer(
-                gru_outputs, self_attention_softmax_mask)
+            attn = attn_layer(gru_outputs, self_attention_softmax_mask)
+
+            attn_outputs = \
+                torch.bmm(attn, gru_outputs.transpose(0, 1)).transpose(0, 1)
 
             gru_inputs = self.dropout(gru_outputs + attn_outputs)
 
@@ -148,4 +159,4 @@ class SelfAttentiveEncoder(nn.Module):
             gru_outputs, final_hidden = SelfAttentiveEncoder.forward_gru_layer(
                 gru_layer, gru_inputs, input_lengths)
 
-        return gru_outputs, final_hidden
+        return gru_outputs, final_hidden, attn

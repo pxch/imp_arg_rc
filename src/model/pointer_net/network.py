@@ -225,8 +225,13 @@ class PointerNet(nn.Module):
             doc_input_embeddings = torch.cat(
                 [doc_input_embeddings, doc_salience_embeddings], dim=2)
 
-        doc_outputs, _ = self.doc_encoder(
-            doc_input_embeddings, doc_input_lengths)
+        if self.use_self_attention:
+            doc_outputs, _, self_attn = self.doc_encoder(
+                doc_input_embeddings, doc_input_lengths)
+
+        else:
+            doc_outputs, _ = self.doc_encoder(
+                doc_input_embeddings, doc_input_lengths)
 
         query_hidden = self.get_query_hidden(
             query_input_seqs=query_input_seqs,
@@ -284,6 +289,9 @@ class PointerNet(nn.Module):
 
         attn = self.attention(query_hidden, doc_outputs, softmax_mask,
                               return_energy=return_energy)
+
+        if self.use_self_attention:
+            return attn, self_attn
 
         if 'neg_query_input_seqs' in kwargs and \
                 'neg_query_input_lengths' in kwargs:
