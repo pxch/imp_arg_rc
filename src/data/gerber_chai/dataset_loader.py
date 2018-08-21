@@ -8,6 +8,7 @@ from .gc_seq_example import gc_seq_fields, gc_seq_with_salience_fields
 
 emnlp_ddl_seed = 1527058799
 
+
 def save_examples_by_fold(examples_by_fold, file_path):
     json_examples_by_fold = []
     for train_examples, val_examples, test_examples in examples_by_fold:

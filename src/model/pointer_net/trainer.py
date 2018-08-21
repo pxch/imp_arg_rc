@@ -24,7 +24,7 @@ def get_self_attn_target(doc_entity_ids, input_lengths, zero_predicates=True):
     # restore entries of predicates by adding a diagonal matrix
     # (also prevents dividing-by-zero in the next step)
     self_attn_target += torch.eye(max_len).to(self_attn_target).unsqueeze(0)
-    self_attn_target = self_attn_target.clamp(max=1)
+    self_attn_target = torch.clamp(self_attn_target, max=1)
 
     # any changes to the attention targets of predicates should happen before
     # normalization (currently only attend to itself)
@@ -62,14 +62,14 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
     if pointer_net.use_salience:
         if pointer_net.salience_vocab_size:
             max_num_mentions = pointer_net.salience_vocab_size - 1
-            kwargs['num_mentions_total'] = \
-                batch.num_mentions_total.clamp(min=0, max=max_num_mentions)
-            kwargs['num_mentions_named'] = \
-                batch.num_mentions_named.clamp(min=0, max=max_num_mentions)
-            kwargs['num_mentions_nominal'] = \
-                batch.num_mentions_nominal.clamp(min=0, max=max_num_mentions)
-            kwargs['num_mentions_pronominal'] = \
-                batch.num_mentions_pronominal.clamp(min=0, max=max_num_mentions)
+            kwargs['num_mentions_total'] = torch.clamp(
+                batch.num_mentions_total, min=0, max=max_num_mentions)
+            kwargs['num_mentions_named'] = torch.clamp(
+                batch.num_mentions_named, min=0, max=max_num_mentions)
+            kwargs['num_mentions_nominal'] = torch.clamp(
+                batch.num_mentions_nominal, min=0, max=max_num_mentions)
+            kwargs['num_mentions_pronominal'] = torch.clamp(
+                batch.num_mentions_pronominal, min=0, max=max_num_mentions)
         else:
             kwargs['num_mentions_total'] = batch.num_mentions_total
             kwargs['num_mentions_named'] = batch.num_mentions_named

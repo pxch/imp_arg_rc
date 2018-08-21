@@ -1,7 +1,8 @@
-import torch
-from torch import nn
 import math
+
+import torch
 import torch.nn.functional as F
+from torch import nn
 
 
 def _masked_softmax(logit, mask, dim=0, eps=1e-10):
@@ -63,10 +64,9 @@ class Attention(nn.Module):
             energy = energy * self.energy_gain
         elif self.method == 'general':
             # matmul: B * 1 * h, L * B * h * 1 -> L * B * 1 * 1 -> L * B
-            energy = \
-                hidden.unsqueeze(1).matmul(
-                    self.weight(encoder_outputs).unsqueeze(3)). \
-                    squeeze(2).squeeze(2)
+            energy = hidden.unsqueeze(1).matmul(
+                self.weight(encoder_outputs).unsqueeze(3)).\
+                squeeze(2).squeeze(2)
             energy = energy * self.energy_gain
         else:
             # cat: L * B * h, L * B * h, dim=2 -> L * B * 2h

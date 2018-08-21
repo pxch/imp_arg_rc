@@ -33,6 +33,7 @@ def smart_file_handler(filename: Path, mod='r'):
     elif filename.suffix == '.gz':
         f = gzip.open(filename, mod)
     else:
+        # noinspection PyTypeChecker
         f = open(filename, mod)
     return f
 

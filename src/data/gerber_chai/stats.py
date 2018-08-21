@@ -54,10 +54,12 @@ def print_stats(all_predicates, verbose=0):
 
     for n_pred, num in num_dict.items():
         table_row = [n_pred] + num[:2]
+        # noinspection PyTypeChecker
         table_row.append(float(num[1]) / num[0])
         if verbose >= 1:
             table_row.append(num[2])
             table_row.append(num[3])
+            # noinspection PyTypeChecker
             table_row.append(100. * float(num[3]) / num[1])
         if verbose >= 2:
             table_row += num[4:]

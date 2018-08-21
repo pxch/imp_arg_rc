@@ -148,7 +148,6 @@ if __name__ == '__main__':
 
     vocab_size, input_size = vocab.vectors.shape
 
-
     log.info(
         'Initializing pointer network with vocab_size = {}, input_size = {}, '
         'hidden_size = {}, num_layers = {}, query_num_layers = {}, '
@@ -160,7 +159,7 @@ if __name__ == '__main__':
             vocab_size, input_size, args.hidden_size, args.num_layers,
             args.query_num_layers, args.dropout, args.use_self_attention,
             args.attention, args.rescale_attn_energy, args.use_salience,
-            args.salience_vocab_size,args.salience_embedding_size,
+            args.salience_vocab_size, args.salience_embedding_size,
             args.multi_hop, args.extra_query_linear, args.extra_doc_encoder,
             args.query_aware))
     pointer_net = PointerNet(

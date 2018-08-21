@@ -147,7 +147,7 @@ class SeqExampleMultiHop(SeqExample):
             target_entity_id=target_entity_id
         )
         assert len(argument_mask) == len(doc_input)
-        self.argument_mask=argument_mask
+        self.argument_mask = argument_mask
 
     def __str__(self):
         return '({}, {}, {}, {}, {})'.format(

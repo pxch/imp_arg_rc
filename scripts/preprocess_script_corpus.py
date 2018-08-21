@@ -29,9 +29,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    assert args.example_type in \
-           ['normal', 'multi_arg', 'multi_slot', 'single_arg', 'salience',
-            'single_arg_salience', 'multi_hop']
+    assert args.example_type in [
+        'normal', 'multi_arg', 'multi_slot', 'single_arg', 'salience',
+        'single_arg_salience', 'multi_hop']
 
     word2vec_dir = Path(args.word2vec_dir)
     fname = word2vec_dir / (args.word2vec_name + '.bin')

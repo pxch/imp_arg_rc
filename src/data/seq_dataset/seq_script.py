@@ -251,6 +251,7 @@ class SeqEvent(object):
         return cls(seq_pred, seq_arg_list, sentnum)
 
     def to_list(self):
+        # noinspection PyTypeChecker
         return [self.sentnum, self.seq_pred.to_tuple()] + \
                [seq_arg.to_tuple() for seq_arg in self.seq_arg_list]
 

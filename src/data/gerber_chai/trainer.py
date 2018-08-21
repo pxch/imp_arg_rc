@@ -238,7 +238,6 @@ def cross_val(pointer_net, model_state_dict_path, iterators_by_fold, param_grid,
         test_iter = iterators_by_fold[fold][2]
 
         best_state_dict = None
-        best_param = None
 
         pointer_net.load_state_dict(torch.load(
             model_state_dict_path,
@@ -277,7 +276,7 @@ def cross_val(pointer_net, model_state_dict_path, iterators_by_fold, param_grid,
                     p.requires_grad = False
 
             optimizer = optim_dict[param['optimizer']](
-                filter(lambda p: p.requires_grad, pointer_net.parameters()),
+                filter(lambda pp: pp.requires_grad, pointer_net.parameters()),
                 lr=param['lr'])
 
             for epoch in range(num_epochs):
@@ -323,7 +322,6 @@ def cross_val(pointer_net, model_state_dict_path, iterators_by_fold, param_grid,
                 best_val_loss = val_results[0]
                 best_val_score = val_results[-1]
                 best_state_dict = deepcopy(pointer_net.state_dict())
-                best_param = param
 
             log.info(log_msg)
 

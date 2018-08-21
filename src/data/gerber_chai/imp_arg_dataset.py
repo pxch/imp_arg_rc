@@ -1,6 +1,7 @@
 from collections import defaultdict
 from copy import deepcopy
 from pathlib import Path
+from typing import List, Union
 
 import numpy as np
 from nltk.corpus.reader.nombank import NombankChainTreePointer
@@ -452,7 +453,8 @@ class ImpArgDataset(object):
 
         return train_val_test_fold_splits
 
-    def get_predicate_indices_by_fold(self, fold_indices):
+    def get_predicate_indices_by_fold(
+            self, fold_indices: Union[int, List[int]]):
         if isinstance(fold_indices, int):
             return list(self.train_test_folds[fold_indices][1])
         results = []

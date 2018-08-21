@@ -4,7 +4,6 @@ from torch import nn
 from .attention import Attention
 from .encoder import Encoder, SelfAttentiveEncoder
 
-
 num_salience_features = 4
 
 

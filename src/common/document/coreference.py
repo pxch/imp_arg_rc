@@ -48,7 +48,7 @@ class Coreference(object):
         mention.mention_idx = self.num_mentions
         self._mentions.append(mention)
         if mention.rep:
-            self.rep_mention = mention
+            self._rep_mention = mention
         self._num_mentions += 1
 
     def get_mention(self, idx) -> Mention:
@@ -91,4 +91,4 @@ class Coreference(object):
         cand_length = [len(candidate.text) for candidate in candidates]
         rep_mention = candidates[cand_length.index(max(cand_length))]
         rep_mention.rep = True
-        self.rep_mention = rep_mention
+        self._rep_mention = rep_mention

@@ -284,6 +284,8 @@ class Predicate(object):
                      for c_idx in c_idx_mapping) else 0
             for c_idx_mapping in c_idx_mapping_list]
 
+        kwargs = {}
+
         if use_salience:
             entity_salience_mapping = {}
             for entity_id in doc_entity_ids:
@@ -298,16 +300,16 @@ class Predicate(object):
                         entity_salience_mapping[entity_id][mention_type] += 1
                     entity_salience_mapping[entity_id][0] += 1
 
-            num_mentions_total = \
+            kwargs['num_mentions_total'] = \
                 [entity_salience_mapping[entity_id][0]
                  for entity_id in doc_entity_ids]
-            num_mentions_named = \
+            kwargs['num_mentions_named'] = \
                 [entity_salience_mapping[entity_id][1]
                  for entity_id in doc_entity_ids]
-            num_mentions_nominal = \
+            kwargs['num_mentions_nominal'] = \
                 [entity_salience_mapping[entity_id][2]
                  for entity_id in doc_entity_ids]
-            num_mentions_pronominal = \
+            kwargs['num_mentions_pronominal'] = \
                 [entity_salience_mapping[entity_id][3]
                  for entity_id in doc_entity_ids]
 
@@ -317,8 +319,8 @@ class Predicate(object):
         imp_arg_type_list = [
             predicate_core_arg_mapping[self.v_pred][label]
             for label in predicate_core_arg_mapping[self.v_pred]
-            if label not in self.exp_args and
-               (not missing_labels or label in missing_labels)
+            if label not in self.exp_args and (
+                    not missing_labels or label in missing_labels)
         ]
 
         for label in predicate_core_arg_mapping[self.v_pred]:
@@ -381,10 +383,7 @@ class Predicate(object):
                     candidate_mask=candidate_mask,
                     dice_scores=dice_scores,
                     argument_mask=argument_mask,
-                    num_mentions_total=num_mentions_total,
-                    num_mentions_named=num_mentions_named,
-                    num_mentions_nominal=num_mentions_nominal,
-                    num_mentions_pronominal=num_mentions_pronominal
+                    *kwargs
                 )
             else:
                 examples[label] = GCSeqExample(

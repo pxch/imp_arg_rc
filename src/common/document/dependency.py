@@ -50,8 +50,10 @@ class DependencyGraph(object):
         self._mod_edges = [defaultdict(list) for _ in range(self._num_tokens)]
 
         for dep in deps:
+            # noinspection PyTypeChecker
             self._head_edges[dep.head_idx][dep.label].append(
                 (dep.mod_idx, dep.extra))
+            # noinspection PyTypeChecker
             self._mod_edges[dep.mod_idx][dep.label].append(
                 (dep.head_idx, dep.extra))
 
