@@ -132,13 +132,14 @@ class SelfAttentiveEncoder(nn.Module):
     # input_lengths: B (LongTensor)
     # outputs: L * B * h (or L * B * 2h for bidirectional)
     # final_hidden: B * h (or B * 2h for bidirectional)
+    # self_attn: B * L * L
     def forward(self, input_embeddings, input_lengths):
         gru_inputs = self.dropout(input_embeddings)
 
         gru_outputs, final_hidden = SelfAttentiveEncoder.forward_gru_layer(
             self.gru_0, gru_inputs, input_lengths)
 
-        attn = None
+        self_attn = None
 
         max_len = input_embeddings.size(0)
         self_attention_softmax_mask = self.get_mask_for_self_attention(
@@ -147,10 +148,10 @@ class SelfAttentiveEncoder(nn.Module):
         for layer_idx in range(1, self.num_layers):
             attn_layer = getattr(self, 'attn_{}'.format(layer_idx))
 
-            attn = attn_layer(gru_outputs, self_attention_softmax_mask)
+            self_attn = attn_layer(gru_outputs, self_attention_softmax_mask)
 
-            attn_outputs = \
-                torch.bmm(attn, gru_outputs.transpose(0, 1)).transpose(0, 1)
+            attn_outputs = torch.bmm(
+                self_attn, gru_outputs.transpose(0, 1)).transpose(0, 1)
 
             gru_inputs = self.dropout(gru_outputs + attn_outputs)
 
@@ -159,4 +160,4 @@ class SelfAttentiveEncoder(nn.Module):
             gru_outputs, final_hidden = SelfAttentiveEncoder.forward_gru_layer(
                 gru_layer, gru_inputs, input_lengths)
 
-        return gru_outputs, final_hidden, attn
+        return gru_outputs, final_hidden, self_attn

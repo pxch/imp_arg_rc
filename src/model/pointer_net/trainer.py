@@ -76,53 +76,68 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
             kwargs['num_mentions_nominal'] = batch.num_mentions_nominal
             kwargs['num_mentions_pronominal'] = batch.num_mentions_pronominal
 
-    if objective_type == 'self_attn':
-        attn, self_attn = pointer_net(
-            doc_input_seqs=batch.doc_input[0],
-            doc_input_lengths=batch.doc_input[1],
-            query_input_seqs=batch.query_input[0],
-            query_input_lengths=batch.query_input[1],
-            softmax_mask=softmax_mask,
-            return_energy=use_sigmoid,
-            **kwargs
-        )
-
-    elif objective_type == 'multi_hop':
-        attn_1, attn = pointer_net(
-            doc_input_seqs=batch.doc_input[0],
-            doc_input_lengths=batch.doc_input[1],
-            query_input_seqs=batch.query_input[0],
-            query_input_lengths=batch.query_input[1],
-            softmax_mask=softmax_mask,
-            multi_hop=True,
-            return_energy=use_sigmoid,
-            **kwargs
-        )
-
-    elif objective_type == 'multi_slot':
+    if objective_type == 'multi_slot':
         kwargs['neg_query_input_seqs'] = batch.neg_query_input[0]
         kwargs['neg_query_input_lengths'] = batch.neg_query_input[1]
 
-        attn, neg_attn = pointer_net(
-            doc_input_seqs=batch.doc_input[0],
-            doc_input_lengths=batch.doc_input[1],
-            query_input_seqs=batch.query_input[0],
-            query_input_lengths=batch.query_input[1],
-            softmax_mask=softmax_mask,
-            return_energy=use_sigmoid,
-            **kwargs
-        )
+    attn, self_attn, first_hop_attn, neg_attn = pointer_net(
+        doc_input_seqs=batch.doc_input[0],
+        doc_input_lengths=batch.doc_input[1],
+        query_input_seqs=batch.query_input[0],
+        query_input_lengths=batch.query_input[1],
+        softmax_mask=softmax_mask,
+        multi_hop=(objective_type == 'multi_hop'),
+        return_energy=use_sigmoid,
+        **kwargs
+    )
 
-    else:
-        attn = pointer_net(
-            doc_input_seqs=batch.doc_input[0],
-            doc_input_lengths=batch.doc_input[1],
-            query_input_seqs=batch.query_input[0],
-            query_input_lengths=batch.query_input[1],
-            softmax_mask=softmax_mask,
-            return_energy=use_sigmoid,
-            **kwargs
-        )
+    # if objective_type == 'self_attn':
+    #     attn, self_attn = pointer_net(
+    #         doc_input_seqs=batch.doc_input[0],
+    #         doc_input_lengths=batch.doc_input[1],
+    #         query_input_seqs=batch.query_input[0],
+    #         query_input_lengths=batch.query_input[1],
+    #         softmax_mask=softmax_mask,
+    #         return_energy=use_sigmoid,
+    #         **kwargs
+    #     )
+    #
+    # elif objective_type == 'multi_hop':
+    #     attn_1, attn = pointer_net(
+    #         doc_input_seqs=batch.doc_input[0],
+    #         doc_input_lengths=batch.doc_input[1],
+    #         query_input_seqs=batch.query_input[0],
+    #         query_input_lengths=batch.query_input[1],
+    #         softmax_mask=softmax_mask,
+    #         multi_hop=True,
+    #         return_energy=use_sigmoid,
+    #         **kwargs
+    #     )
+    #
+    # elif objective_type == 'multi_slot':
+    #     kwargs['neg_query_input_seqs'] = batch.neg_query_input[0]
+    #     kwargs['neg_query_input_lengths'] = batch.neg_query_input[1]
+    #
+    #     attn, neg_attn = pointer_net(
+    #         doc_input_seqs=batch.doc_input[0],
+    #         doc_input_lengths=batch.doc_input[1],
+    #         query_input_seqs=batch.query_input[0],
+    #         query_input_lengths=batch.query_input[1],
+    #         softmax_mask=softmax_mask,
+    #         return_energy=use_sigmoid,
+    #         **kwargs
+    #     )
+    #
+    # else:
+    #     attn = pointer_net(
+    #         doc_input_seqs=batch.doc_input[0],
+    #         doc_input_lengths=batch.doc_input[1],
+    #         query_input_seqs=batch.query_input[0],
+    #         query_input_lengths=batch.query_input[1],
+    #         softmax_mask=softmax_mask,
+    #         return_energy=use_sigmoid,
+    #         **kwargs
+    #     )
 
     if use_sigmoid:
         attn = torch.sigmoid(attn) * softmax_mask.float()
@@ -154,14 +169,15 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
         loss = (loss, self_attn_loss)
 
     if objective_type == 'multi_hop':
-        attn_1_target = batch.argument_mask.float()
-        attn_1_target /= attn_1_target.sum(dim=0).unsqueeze(0)
+        first_hop_attn_target = batch.argument_mask.float()
+        first_hop_attn_target /= first_hop_attn_target.sum(dim=0).unsqueeze(0)
 
         # attn_1_loss = F.kl_div(
         #     torch.log(attn_1), attn_1_target,
         #     size_average=False) / batch.batch_size
-        attn_1_loss = F.kl_div(torch.log(attn_1), attn_1_target)
-        loss = (loss, attn_1_loss)
+        first_hop_attn_loss = F.kl_div(
+            torch.log(first_hop_attn), first_hop_attn_target)
+        loss = (loss, first_hop_attn_loss)
 
     if objective_type == 'multi_arg':
         neg_target_mask = \

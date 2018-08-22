@@ -126,7 +126,7 @@ class SelfAttention(nn.Module):
 
     # encoder_outputs: L * B * h
     # softmax_mask: B * L * L
-    # return: L * B * h
+    # return: B * L * L
     def forward(self, encoder_outputs, softmax_mask):
         max_len = encoder_outputs.size(0)
 

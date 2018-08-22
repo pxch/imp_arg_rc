@@ -50,25 +50,35 @@ def compute_batch_loss(pointer_net, batch, regularization=0.0, predict=False,
             kwargs['num_mentions_nominal'] = batch.num_mentions_nominal
             kwargs['num_mentions_pronominal'] = batch.num_mentions_pronominal
 
-    if multi_hop:
-        attn_1, attn = pointer_net(
-            doc_input_seqs=batch.doc_input[0],
-            doc_input_lengths=batch.doc_input[1],
-            query_input_seqs=batch.query_input[0],
-            query_input_lengths=batch.query_input[1],
-            softmax_mask=batch.candidate_mask,
-            multi_hop=True,
-            **kwargs
-        )
-    else:
-        attn = pointer_net(
-            doc_input_seqs=batch.doc_input[0],
-            doc_input_lengths=batch.doc_input[1],
-            query_input_seqs=batch.query_input[0],
-            query_input_lengths=batch.query_input[1],
-            softmax_mask=batch.candidate_mask,
-            **kwargs
-        )
+    attn, _, first_hop_attn, _ = pointer_net(
+        doc_input_seqs=batch.doc_input[0],
+        doc_input_lengths=batch.doc_input[1],
+        query_input_seqs=batch.query_input[0],
+        query_input_lengths=batch.query_input[1],
+        softmax_mask=batch.candidate_mask,
+        multi_hop=multi_hop,
+        **kwargs
+    )
+
+    # if multi_hop:
+    #     attn_1, attn = pointer_net(
+    #         doc_input_seqs=batch.doc_input[0],
+    #         doc_input_lengths=batch.doc_input[1],
+    #         query_input_seqs=batch.query_input[0],
+    #         query_input_lengths=batch.query_input[1],
+    #         softmax_mask=batch.candidate_mask,
+    #         multi_hop=True,
+    #         **kwargs
+    #     )
+    # else:
+    #     attn = pointer_net(
+    #         doc_input_seqs=batch.doc_input[0],
+    #         doc_input_lengths=batch.doc_input[1],
+    #         query_input_seqs=batch.query_input[0],
+    #         query_input_lengths=batch.query_input[1],
+    #         softmax_mask=batch.candidate_mask,
+    #         **kwargs
+    #     )
 
     max_dice_scores = batch.dice_scores.max(dim=0)[0].unsqueeze(0)
     target_mask = batch.dice_scores.eq(max_dice_scores)
@@ -103,11 +113,12 @@ def compute_batch_loss(pointer_net, batch, regularization=0.0, predict=False,
         loss -= torch.log(1 - neg_logit_attn).sum() / batch.batch_size
 
     if multi_hop:
-        attn_1_target = batch.argument_mask.float()
-        attn_1_target /= attn_1_target.sum(dim=0).unsqueeze(0)
+        first_hop_attn_target = batch.argument_mask.float()
+        first_hop_attn_target /= first_hop_attn_target.sum(dim=0).unsqueeze(0)
 
-        attn_1_loss = F.kl_div(torch.log(attn_1), attn_1_target)
-        loss = (loss, attn_1_loss)
+        first_hop_attn_loss = F.kl_div(
+            torch.log(first_hop_attn), first_hop_attn_target)
+        loss = (loss, first_hop_attn_loss)
 
     if predict:
         if predict_entity:

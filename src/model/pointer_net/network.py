@@ -199,7 +199,10 @@ class PointerNet(nn.Module):
     # query_input_seqs: Lq * B
     # query_input_lengths: B
     # softmax_mask: Ld * B
-    # return: B * 1 * Ld
+    # return attn: Ld * B
+    # return self_attn: B * Ld * Ld or None
+    # return first_hop_attn: Ld * B or None
+    # return neg_attn: Ld * B or None
     def forward(self, doc_input_seqs, doc_input_lengths,
                 query_input_seqs, query_input_lengths, softmax_mask,
                 return_energy=False, multi_hop=False, event_attention=False,
@@ -231,6 +234,7 @@ class PointerNet(nn.Module):
         else:
             doc_outputs, _ = self.doc_encoder(
                 doc_input_embeddings, doc_input_lengths)
+            self_attn = None
 
         query_hidden = self.get_query_hidden(
             query_input_seqs=query_input_seqs,
@@ -252,11 +256,11 @@ class PointerNet(nn.Module):
             #         attn_1.transpose(0, 1).unsqueeze(1),
             #         event_outputs.transpose(0, 1)).squeeze(1)
             # else:
-            attn_1 = self.attention_1(query_hidden, doc_outputs)
+            first_hop_attn = self.attention_1(query_hidden, doc_outputs)
 
             # bmm: B * 1 * L, B * L * 2h -> B * 1 * 2h -> B * 2h
             output_1 = torch.bmm(
-                attn_1.transpose(0, 1).unsqueeze(1),
+                first_hop_attn.transpose(0, 1).unsqueeze(1),
                 doc_outputs.transpose(0, 1)).squeeze(1)
 
             if self.extra_query_linear:
@@ -276,21 +280,18 @@ class PointerNet(nn.Module):
                 else:
                     doc_outputs_2, _ = self.doc_encoder_2(
                         doc_outputs, doc_input_lengths)
-                attn_2 = self.attention(
+                attn = self.attention(
                     query_hidden_2, doc_outputs_2, softmax_mask,
                     return_energy=return_energy)
             else:
-                attn_2 = self.attention(
+                attn = self.attention(
                     query_hidden_2, doc_outputs, softmax_mask,
                     return_energy=return_energy)
-
-            return attn_1, attn_2
-
-        attn = self.attention(query_hidden, doc_outputs, softmax_mask,
-                              return_energy=return_energy)
-
-        if self.use_self_attention:
-            return attn, self_attn
+        else:
+            first_hop_attn = None
+            attn = self.attention(
+                query_hidden, doc_outputs, softmax_mask,
+                return_energy=return_energy)
 
         if 'neg_query_input_seqs' in kwargs and \
                 'neg_query_input_lengths' in kwargs:
@@ -303,6 +304,7 @@ class PointerNet(nn.Module):
                 neg_query_hidden, doc_outputs, softmax_mask,
                 return_energy=return_energy)
 
-            return attn, neg_attn
+        else:
+            neg_attn = None
 
-        return attn
+        return attn, self_attn, first_hop_attn, neg_attn
