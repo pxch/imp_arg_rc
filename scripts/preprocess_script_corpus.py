@@ -21,28 +21,28 @@ if __name__ == '__main__':
     parser.add_argument('--filter_repetitive_prep', action='store_true',
                         help='if turned on, remove pobjs with repetitive '
                              'prepositions in a event')
-    parser.add_argument('--example_type', default='normal',
-                        help='type of examples to generate, can be either '
-                             'normal (default), multi_arg, multi_slot, '
-                             'single_arg, salience, single_arg_salience,'
-                             'or multi_hop')
+    parser.add_argument('--query_type', default='normal',
+                        help='type of query to generate, can be either '
+                             'normal (default), single_arg, multi_hop, '
+                             'multi_arg, or multi_slot')
+    parser.add_argument('--include_salience', action='store_true',
+                        help='if turned on, include salience features')
+    parser.add_argument('--include_coref_pred_pairs', action='store_true',
+                        help='if turned on, include pairs of predicate indices'
+                             'with shared arguments')
 
     args = parser.parse_args()
 
-    assert args.example_type in [
-        'normal', 'multi_arg', 'multi_slot', 'single_arg', 'salience',
-        'single_arg_salience', 'multi_hop']
+    assert args.query_type in [
+        'normal', 'single_arg', 'multi_hop', 'multi_arg', 'multi_slot']
 
     word2vec_dir = Path(args.word2vec_dir)
     fname = word2vec_dir / (args.word2vec_name + '.bin')
     fvocab = word2vec_dir / (args.word2vec_name + '.vocab')
     assert fname.exists() and fvocab.exists()
 
-    if args.example_type == 'multi_hop':
-        vocab = load_vocab(fname=str(fname), fvocab=str(fvocab), binary=True,
-                           use_target_specials=True)
-    else:
-        vocab = load_vocab(fname=str(fname), fvocab=str(fvocab), binary=True)
+    vocab = load_vocab(fname=str(fname), fvocab=str(fvocab), binary=True,
+                       use_target_specials=True, use_miss_specials=True)
 
     input_dir = Path(args.input_dir)
     assert input_dir.exists()
@@ -75,7 +75,11 @@ if __name__ == '__main__':
             all_examples.extend(
                 seq_script.get_all_examples(
                     filter_single_candidate=True,
-                    example_type=args.example_type))
+                    filter_single_argument=False,
+                    query_type=args.query_type,
+                    include_salience=args.include_salience,
+                    include_coref_pred_pairs=args.include_coref_pred_pairs
+                ))
 
     log.info('Writing {} examples to {}'.format(len(all_examples), output_file))
     with bz2.open(output_file, 'wt') as fout:

@@ -9,9 +9,14 @@ from model.pointer_net.encoder import SelfAttentiveEncoder
 from utils import log
 
 
-# note that doc_entity_ids need to be transposed from batch input, i.e.,
-# it should have shape of B * Ld
-def get_self_attn_target(doc_entity_ids, input_lengths, zero_predicates=True):
+def get_self_attn_target(batch, target_for_pred='none'):
+    assert target_for_pred in ['none', 'self', 'self_attn']
+
+    # doc_entity_ids need to be transposed from batch input, i.e.,
+    # it should have shape of B * Ld
+    doc_entity_ids = batch.doc_entity_ids.transpose(0, 1)
+    input_lengths = batch.doc_input[1]
+
     batch_size, max_len = doc_entity_ids.shape
 
     # get target based on same entity_ids
@@ -20,6 +25,41 @@ def get_self_attn_target(doc_entity_ids, input_lengths, zero_predicates=True):
 
     # remove entries with -1 entity_id (either predicates or padding tokens)
     self_attn_target *= (doc_entity_ids != -1).unsqueeze(2)
+
+    # if target_for_pred in 'self_attn', add information from
+    # corefered predicates (predicates with shared arguments)
+    if target_for_pred == 'self_attn':
+        coref_pred_indices = torch.cat(
+            [batch.coref_pred_1, batch.coref_pred_2], dim=0)
+        col_indices = (coref_pred_indices[1, :] != -1).nonzero()
+        if col_indices.numel() > 0:
+            coref_pred_indices = coref_pred_indices[:, col_indices.squeeze(1)]
+            sparse_target = torch.cuda.sparse.ByteTensor(
+                coref_pred_indices,
+                torch.ones(coref_pred_indices.size(1)).to(self_attn_target),
+                torch.Size([batch_size, max_len, max_len]))
+            self_attn_target += sparse_target + sparse_target.transpose(1, 2)
+
+        '''
+        for ex_idx in range(batch_size):
+            coref_pred_index_1 = batch.coref_pred_1[0][ex_idx, :]
+            coref_pred_index_2 = batch.coref_pred_2[0][ex_idx, :]
+            coref_pred_count = batch.coref_pred_1[1][ex_idx].item()
+            if coref_pred_index_1[0] != -1:
+                # compute indices for sparse tensor
+                coref_pred_indices = torch.stack(
+                    [coref_pred_index_1, coref_pred_index_2], dim=0)
+                coref_pred_indices = coref_pred_indices[:, :coref_pred_count]
+                # create sparse tensor with 1s
+                sparse_target = torch.cuda.sparse.ByteTensor(
+                    coref_pred_indices,
+                    torch.ones(coref_pred_count).to(self_attn_target),
+                    torch.Size([max_len, max_len]))
+                # add the sparse tensor to self_attn_target
+                # (after making it symmetric)
+                self_attn_target[ex_idx, :, :] += \
+                    (sparse_target + sparse_target.t()).to_dense()
+        '''
 
     # restore entries of predicates by adding a diagonal matrix
     # (also prevents dividing-by-zero in the next step)
@@ -33,8 +73,8 @@ def get_self_attn_target(doc_entity_ids, input_lengths, zero_predicates=True):
     self_attn_target = self_attn_target.float()
     self_attn_target /= self_attn_target.sum(dim=2, keepdim=True)
 
-    # if zero_predicates is True, then mask out all rows of predicates
-    if zero_predicates:
+    # if target_for_pred is none, then mask out all rows of predicates
+    if target_for_pred == 'none':
         target_mask = (doc_entity_ids != -1).unsqueeze(2).float()
     # otherwise, apply self_attn_mask
     else:
@@ -46,12 +86,10 @@ def get_self_attn_target(doc_entity_ids, input_lengths, zero_predicates=True):
     return self_attn_target
 
 
-def compute_batch_loss(pointer_net, batch, objective_type='normal',
+def compute_batch_loss(pointer_net, batch, neg_loss_type='none',
                        regularization=0.1, predict=False, use_sum=False,
-                       use_sigmoid=False):
-    assert objective_type in [
-        'normal', 'multi_arg', 'multi_slot', 'multi_hop', 'max_margin',
-        'self_attn']
+                       use_sigmoid=False, self_attn_target_for_pred='none'):
+    assert neg_loss_type in ['none', 'multi_arg', 'multi_slot', 'max_margin']
 
     # check each column of batch.softmax_mask contains at least one nonzero
     # assert batch.softmax_mask.sum(dim=0).nonzero().size(0) == batch.batch_size
@@ -76,68 +114,19 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
             kwargs['num_mentions_nominal'] = batch.num_mentions_nominal
             kwargs['num_mentions_pronominal'] = batch.num_mentions_pronominal
 
-    if objective_type == 'multi_slot':
+    if neg_loss_type == 'multi_slot':
         kwargs['neg_query_input_seqs'] = batch.neg_query_input[0]
         kwargs['neg_query_input_lengths'] = batch.neg_query_input[1]
 
-    attn, self_attn, first_hop_attn, neg_attn = pointer_net(
+    attn, self_attn, first_hop_attn, neg_query_attn = pointer_net(
         doc_input_seqs=batch.doc_input[0],
         doc_input_lengths=batch.doc_input[1],
         query_input_seqs=batch.query_input[0],
         query_input_lengths=batch.query_input[1],
         softmax_mask=softmax_mask,
-        multi_hop=(objective_type == 'multi_hop'),
         return_energy=use_sigmoid,
         **kwargs
     )
-
-    # if objective_type == 'self_attn':
-    #     attn, self_attn = pointer_net(
-    #         doc_input_seqs=batch.doc_input[0],
-    #         doc_input_lengths=batch.doc_input[1],
-    #         query_input_seqs=batch.query_input[0],
-    #         query_input_lengths=batch.query_input[1],
-    #         softmax_mask=softmax_mask,
-    #         return_energy=use_sigmoid,
-    #         **kwargs
-    #     )
-    #
-    # elif objective_type == 'multi_hop':
-    #     attn_1, attn = pointer_net(
-    #         doc_input_seqs=batch.doc_input[0],
-    #         doc_input_lengths=batch.doc_input[1],
-    #         query_input_seqs=batch.query_input[0],
-    #         query_input_lengths=batch.query_input[1],
-    #         softmax_mask=softmax_mask,
-    #         multi_hop=True,
-    #         return_energy=use_sigmoid,
-    #         **kwargs
-    #     )
-    #
-    # elif objective_type == 'multi_slot':
-    #     kwargs['neg_query_input_seqs'] = batch.neg_query_input[0]
-    #     kwargs['neg_query_input_lengths'] = batch.neg_query_input[1]
-    #
-    #     attn, neg_attn = pointer_net(
-    #         doc_input_seqs=batch.doc_input[0],
-    #         doc_input_lengths=batch.doc_input[1],
-    #         query_input_seqs=batch.query_input[0],
-    #         query_input_lengths=batch.query_input[1],
-    #         softmax_mask=softmax_mask,
-    #         return_energy=use_sigmoid,
-    #         **kwargs
-    #     )
-    #
-    # else:
-    #     attn = pointer_net(
-    #         doc_input_seqs=batch.doc_input[0],
-    #         doc_input_lengths=batch.doc_input[1],
-    #         query_input_seqs=batch.query_input[0],
-    #         query_input_lengths=batch.query_input[1],
-    #         softmax_mask=softmax_mask,
-    #         return_energy=use_sigmoid,
-    #         **kwargs
-    #     )
 
     if use_sigmoid:
         attn = torch.sigmoid(attn) * softmax_mask.float()
@@ -151,128 +140,129 @@ def compute_batch_loss(pointer_net, batch, objective_type='normal',
     else:
         logit_attn, _ = masked_attn.max(dim=0)
 
-    loss = -torch.log(logit_attn).sum() / batch.batch_size
+    # loss term for main objective
+    losses = {'main': -torch.log(logit_attn).sum() / batch.batch_size}
 
+    if self_attn is not None:
+        self_attn_target = get_self_attn_target(
+            batch, target_for_pred=self_attn_target_for_pred)
+        self_attn_loss = F.kl_div(torch.log(self_attn), self_attn_target)
+        # loss term for self attention
+        losses['self_attn'] = self_attn_loss
+
+    if first_hop_attn is not None:
+        first_hop_attn_target = batch.argument_mask.float()
+        first_hop_attn_target /= first_hop_attn_target.sum(dim=0).unsqueeze(0)
+
+        first_hop_attn_loss = F.kl_div(
+            torch.log(first_hop_attn), first_hop_attn_target)
+        # loss term for first hop attention (in multi_hop setting)
+        losses['first_hop_attn'] = first_hop_attn_loss
+
+    if neg_loss_type != 'none':
+        # additional loss for negative target entity (in multi_arg setting)
+        if neg_loss_type == 'multi_arg':
+            neg_target_mask = \
+                batch.doc_entity_ids.eq(batch.neg_target_entity_id.unsqueeze(0))
+            neg_masked_attn = attn * neg_target_mask.float()
+
+        # additional loss for negative query (in multi_slot setting)
+        elif neg_loss_type == 'multi_slot':
+            assert neg_query_attn is not None
+            if use_sigmoid:
+                neg_query_attn = \
+                    torch.sigmoid(neg_query_attn) * softmax_mask.float()
+
+            neg_masked_attn = neg_query_attn * target_mask.float()
+
+        # additional loss for negative attention weight (in max_margin setting)
+        else:  # neg_loss_type == 'max_margin'
+            neg_target_mask = \
+                batch.doc_entity_ids.ne(batch.target_entity_id.unsqueeze(0))
+            neg_target_mask = neg_target_mask * softmax_mask
+
+            neg_masked_attn = attn * neg_target_mask.float()
+
+        if use_sum:
+            neg_logit_attn = neg_masked_attn.sum(dim=0)
+        else:
+            neg_logit_attn, _ = neg_masked_attn.max(dim=0)
+
+        # add additional loss to the loss term for main objective
+        losses['main'] -= torch.log(1 - neg_logit_attn).sum() / batch.batch_size
+
+    # add regularization loss to the loss term for main objective
     if regularization > 0:
         reg_loss = 0.
         for param in pointer_net.parameters():
             reg_loss += param.norm() ** 2
         reg_loss = reg_loss ** 0.5
-        loss += regularization * reg_loss
-
-    if objective_type == 'self_attn':
-        self_attn_target = get_self_attn_target(
-            doc_entity_ids=batch.doc_entity_ids.transpose(0, 1),
-            input_lengths=batch.doc_input[1],
-            zero_predicates=True)
-        self_attn_loss = F.kl_div(torch.log(self_attn), self_attn_target)
-        loss = (loss, self_attn_loss)
-
-    if objective_type == 'multi_hop':
-        first_hop_attn_target = batch.argument_mask.float()
-        first_hop_attn_target /= first_hop_attn_target.sum(dim=0).unsqueeze(0)
-
-        # attn_1_loss = F.kl_div(
-        #     torch.log(attn_1), attn_1_target,
-        #     size_average=False) / batch.batch_size
-        first_hop_attn_loss = F.kl_div(
-            torch.log(first_hop_attn), first_hop_attn_target)
-        loss = (loss, first_hop_attn_loss)
-
-    if objective_type == 'multi_arg':
-        neg_target_mask = \
-            batch.doc_entity_ids.eq(batch.neg_target_entity_id.unsqueeze(0))
-        neg_masked_attn = attn * neg_target_mask.float()
-
-        if use_sum:
-            neg_logit_attn = neg_masked_attn.sum(dim=0)
-        else:
-            neg_logit_attn, _ = neg_masked_attn.max(dim=0)
-
-        loss -= torch.log(1 - neg_logit_attn).sum() / batch.batch_size
-
-    if objective_type == 'multi_slot':
-        if use_sigmoid:
-            neg_attn = torch.sigmoid(neg_attn) * softmax_mask.float()
-
-        neg_masked_attn = neg_attn * target_mask.float()
-
-        if use_sum:
-            neg_logit_attn = neg_masked_attn.sum(dim=0)
-        else:
-            neg_logit_attn, _ = neg_masked_attn.max(dim=0)
-
-        loss -= torch.log(1 - neg_logit_attn).sum() / batch.batch_size
-
-    if objective_type == 'max_margin':
-        neg_target_mask = \
-            batch.doc_entity_ids.ne(batch.target_entity_id.unsqueeze(0))
-        neg_target_mask = neg_target_mask * softmax_mask
-
-        neg_masked_attn = attn * neg_target_mask.float()
-
-        if use_sum:
-            neg_logit_attn = neg_masked_attn.sum(dim=0)
-        else:
-            neg_logit_attn, _ = neg_masked_attn.max(dim=0)
-
-        loss -= torch.log(1 - neg_logit_attn).sum() / batch.batch_size
+        losses['main'] += regularization * reg_loss
 
     if predict:
         max_indices = attn.max(dim=0)[1].unsqueeze(0)
         predicted = batch.doc_entity_ids.gather(index=max_indices, dim=0)
         predicted = predicted.squeeze(0)
-        return loss, predicted
+        return losses, predicted
     else:
-        return loss
+        return losses
 
 
-def validate(pointer_net, validation_iter, objective_type='normal', msg=''):
+def validate(pointer_net, validation_iter, self_attn_target_for_pred='none',
+             msg=''):
     pointer_net.train(False)
 
     val_loss = 0.0
-    val_attn_loss = 0.0
+    val_loss_self_attn = 0.0
+    val_loss_first_hop_attn = 0.0
 
     num_correct = 0
     num_total = 0
 
     for batch in validation_iter:
-        loss, predicted = compute_batch_loss(
-            pointer_net, batch, objective_type=objective_type,
-            regularization=0, predict=True)
-        if objective_type in ['multi_hop', 'self_attn']:
-            val_loss += loss[0].item()
-            val_attn_loss += loss[1].item()
-        else:
-            val_loss += loss.item()
+        losses, predicted = compute_batch_loss(
+            pointer_net, batch, regularization=0.0, predict=True,
+            self_attn_target_for_pred=self_attn_target_for_pred)
+
+        val_loss += losses['main'].item()
+        if pointer_net.use_self_attn:
+            assert 'self_attn' in losses
+            val_loss_self_attn += losses['self_attn'].item()
+        if pointer_net.multi_hop:
+            assert 'first_hop_attn' in losses
+            val_loss_first_hop_attn += losses['first_hop_attn'].item()
 
         num_correct += \
             int(predicted.eq(batch.target_entity_id).float().sum().item())
         num_total += batch.batch_size
 
     val_loss /= len(validation_iter)
-    if objective_type in ['multi_hop', 'self_attn']:
-        val_attn_loss /= len(validation_iter)
+    val_loss_self_attn /= len(validation_iter)
+    val_loss_first_hop_attn /= len(validation_iter)
 
     pointer_net.train(True)
 
     log.info(
-        '{}: validation loss = {:.8f}{}, '
+        '{}: validation loss = {:.8f}{}{}, '
         'accuracy = {:8d}/{:8d} = {:.2f}%'.format(
             msg, val_loss,
-            ', attention loss = {:.8f}'.format(val_attn_loss)
-            if objective_type in ['multi_hop', 'self_attn'] else '',
+            ', self_attn loss = {:.8f}'.format(val_loss_self_attn)
+            if pointer_net.use_self_attn else '',
+            ', first_hop_attn loss = {:.8f}'.format(val_loss_first_hop_attn)
+            if pointer_net.multi_hop else '',
             num_correct, num_total,
             num_correct / num_total * 100))
 
+    return val_loss, val_loss_self_attn, val_loss_first_hop_attn
+
 
 def evaluate(pointer_net, evaluation_iter, report_entity_freq=False,
-             multi_hop=False, self_attn=False, return_results=False):
+             return_results=False):
     pointer_net.train(False)
 
     results = []
 
-    val_loss = 0.0
+    eval_loss = 0.0
 
     num_correct = {'all': 0, 'subj': 0, 'dobj': 0, 'pobj': 0}
     num_total = {'all': 0, 'subj': 0, 'dobj': 0, 'pobj': 0}
@@ -282,22 +272,11 @@ def evaluate(pointer_net, evaluation_iter, report_entity_freq=False,
             num_correct[entity_freq] = 0
             num_total[entity_freq] = 0
 
-    if multi_hop:
-        objective_type = 'multi_hop'
-    elif self_attn:
-        objective_type = 'self_attn'
-    else:
-        objective_type = 'normal'
-
     for batch in evaluation_iter:
-        loss, predicted = compute_batch_loss(
-            pointer_net, batch, regularization=0, predict=True,
-            objective_type=objective_type)
+        losses, predicted = compute_batch_loss(
+            pointer_net, batch, regularization=0, predict=True)
 
-        if multi_hop or self_attn:
-            val_loss += loss[0].item()
-        else:
-            val_loss += loss.item()
+        eval_loss += losses['main'].item()
 
         # num_correct['all'] += \
         #     (predicted == batch.target_entity_id).sum().item()
@@ -306,7 +285,7 @@ def evaluate(pointer_net, evaluation_iter, report_entity_freq=False,
         for idx in range(batch.batch_size):
             query = batch.query_input[0][:, idx]
             pos = ''
-            if multi_hop:
+            if pointer_net.multi_hop:
                 for token_id in query:
                     if token_id.item() == 4:
                         pos = 'subj'
@@ -352,12 +331,12 @@ def evaluate(pointer_net, evaluation_iter, report_entity_freq=False,
                 if correct:
                     num_correct[entity_freq] += 1
 
-    val_loss /= len(evaluation_iter)
+    eval_loss /= len(evaluation_iter)
 
     pointer_net.train(True)
 
     # print()
-    log.info('validation loss = {:.8f}'.format(val_loss))
+    log.info('evaluation loss = {:.8f}'.format(eval_loss))
     for key in num_correct.keys():
         log.info('{} accuracy = {:8d}/{:8d} = {:.2f}%'.format(
             key, num_correct[key], num_total[key],
@@ -368,31 +347,38 @@ def evaluate(pointer_net, evaluation_iter, report_entity_freq=False,
 
 
 def train_epoch(pointer_net, training_iter, validation_iter, optimizer,
-                objective_type='normal', backward_with_attn_loss=False,
-                regularization=0.1, max_grad_norm=1.0, log_every=1000,
-                val_every=50000, use_sum=False, use_sigmoid=False):
+                neg_loss_type='none', regularization=0.1, use_sum=False,
+                use_sigmoid=False, self_attn_target_for_pred='none',
+                backward_self_attn_loss=False,
+                backward_first_hop_attn_loss=False, max_grad_norm=1.0,
+                log_every=1000, val_every=50000):
     training_loss = 0.0
-    training_attn_loss = 0.0
+    training_loss_self_attn = 0.0
+    training_loss_first_hop_attn = 0.0
 
     for batch in training_iter:
-        loss = compute_batch_loss(
-            pointer_net, batch, objective_type=objective_type,
+        losses = compute_batch_loss(
+            pointer_net, batch, neg_loss_type=neg_loss_type,
             regularization=regularization, predict=False, use_sum=use_sum,
-            use_sigmoid=use_sigmoid)
+            use_sigmoid=use_sigmoid,
+            self_attn_target_for_pred=self_attn_target_for_pred)
 
-        if objective_type in ['multi_hop', 'self_attn']:
-            training_loss += loss[0].item()
-            training_attn_loss += loss[1].item()
-        else:
-            training_loss += loss.item()
+        training_loss += losses['main'].item()
+        if pointer_net.use_self_attn:
+            assert 'self_attn' in losses
+            training_loss_self_attn += losses['self_attn'].item()
+        if pointer_net.multi_hop:
+            assert 'first_hop_attn' in losses
+            training_loss_first_hop_attn += losses['first_hop_attn'].item()
 
         optimizer.zero_grad()
 
-        if objective_type in ['multi_hop', 'self_attn']:
-            if backward_with_attn_loss:
-                loss = loss[0] + loss[1]
-            else:
-                loss = loss[0]
+        loss = losses['main']
+        if backward_self_attn_loss and pointer_net.use_self_attn:
+            loss += losses['self_attn']
+        if backward_first_hop_attn_loss and pointer_net.multi_hop:
+            loss += losses['first_hop_attn']
+
         loss.backward()
 
         clip_grad_norm_(pointer_net.parameters(), max_norm=max_grad_norm)
@@ -402,29 +388,37 @@ def train_epoch(pointer_net, training_iter, validation_iter, optimizer,
         if training_iter.iterations % log_every == 0:
             log.info(
                 'Finished {:8d}/{:8d} batches, training loss in '
-                'last {} batches = {:.8f}{}'.format(
+                'last {} batches = {:.8f}{}{}'.format(
                     training_iter.iterations, len(training_iter),
                     log_every, training_loss / log_every,
-                    ', attention loss = {:.8f}'.format(
-                        training_attn_loss / log_every)
-                    if objective_type in ['multi_hop', 'self_attn'] else ''
+                    ', self_attn loss = {:.8f}'.format(
+                        training_loss_self_attn / log_every)
+                    if pointer_net.use_self_attn else '',
+                    ', first_hop_attn loss = {:.8f}'.format(
+                        training_loss_first_hop_attn / log_every)
+                    if pointer_net.multi_hop else ''
                 ))
             training_loss = 0.0
-            training_attn_loss = 0.0
+            training_loss_self_attn = 0.0
+            training_loss_first_hop_attn = 0.0
 
         if training_iter.iterations % val_every == 0:
-            validate(
-                pointer_net, validation_iter, objective_type=objective_type,
+            _ = validate(
+                pointer_net, validation_iter,
+                self_attn_target_for_pred=self_attn_target_for_pred,
                 msg='After {:8d} batches'.format(training_iter.iterations))
 
     num_remaining_batch = len(training_iter) % log_every
     if num_remaining_batch > 0:
         log.info(
             'Finished {:8d}/{:8d} batches, training loss in '
-            'last {} batches = {:.8f}{}'.format(
+            'last {} batches = {:.8f}{}{}'.format(
                 len(training_iter), len(training_iter),
                 num_remaining_batch, training_loss / num_remaining_batch,
-                ', attention loss = {:.8f}'.format(
-                    training_attn_loss / log_every)
-                if objective_type in ['multi_hop', 'self_attn'] else ''
+                ', self_attn loss = {:.8f}'.format(
+                    training_loss_self_attn / num_remaining_batch)
+                if pointer_net.use_self_attn else '',
+                ', first_hop_attn loss = {:.8f}'.format(
+                    training_loss_first_hop_attn / num_remaining_batch)
+                if pointer_net.multi_hop else ''
             ))

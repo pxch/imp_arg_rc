@@ -7,9 +7,7 @@ from torchtext.vocab import Vocab
 
 from common.event_script import Argument, Event, Predicate, Script
 from utils import consts
-from .seq_example import SeqExample, SeqExampleMultiArg, SeqExampleMultiSlot
-from .seq_example import SeqExampleMultiHop
-from .seq_example import SeqExampleWithSalience
+from .seq_example import SeqExample
 
 
 def _get_token_id(candidates, vocab: Vocab, ensure_found=True):
@@ -277,8 +275,15 @@ class SeqEvent(object):
         return [self.seq_pred.token_id] + \
                [seq_arg.token_id for seq_arg in self.seq_arg_list]
 
-    def entity_id_list(self):
-        return [-1] + [seq_arg.entity_id for seq_arg in self.seq_arg_list]
+    def entity_id_list(self, include_pred=True):
+        result = [seq_arg.entity_id for seq_arg in self.seq_arg_list]
+        if include_pred:
+            result = [-1] + result
+        return result
+
+    def has_shared_arg(self, other):
+        return not set(self.entity_id_list(include_pred=False)).isdisjoint(
+            set(other.entity_id_list(include_pred=False)))
 
 
 class SeqScript(object):
@@ -380,7 +385,8 @@ class SeqScript(object):
 
     def get_all_examples(
             self, stop_pred_ids=None, filter_single_candidate=True,
-            example_type='normal', filter_single_argument=False):
+            filter_single_argument=False, query_type='normal',
+            include_salience=False, include_coref_pred_pairs=False):
         all_examples = []
 
         # start the query from the second not-down-sampled event
@@ -394,23 +400,9 @@ class SeqScript(object):
         #     idx for idx, seq_event in enumerate(self.seq_event_list)
         #     if not seq_event.seq_pred.drop and idx > 0]
 
-        if example_type == 'normal':
-            build_fn = SeqExample.build
-        elif example_type == 'multi_arg':
-            build_fn = SeqExampleMultiArg.build
-        elif example_type == 'multi_slot':
-            build_fn = SeqExampleMultiSlot.build
-        elif example_type == 'single_arg':
-            build_fn = SeqExample.build_single
-        elif example_type == 'salience':
-            build_fn = SeqExampleWithSalience.build
-        elif example_type == 'single_arg_salience':
-            build_fn = SeqExampleWithSalience.build_single
-        elif example_type == 'multi_hop':
-            build_fn = SeqExampleMultiHop.build
-        else:
-            raise ValueError('Unrecognized example_type: {}'.format(
-                example_type))
+        assert query_type in [
+            'normal', 'single_arg', 'multi_hop', 'multi_arg', 'multi_slot'], \
+            'Unrecognized example_type: {}'.format(query_type)
 
         for query_idx in query_idx_list:
             doc_event_list = self.seq_event_list[:query_idx]
@@ -424,9 +416,13 @@ class SeqScript(object):
             if stop_pred_ids and query_event.seq_pred.token_id in stop_pred_ids:
                 continue
 
-            all_examples.extend(build_fn(
+            all_examples.extend(SeqExample.build(
                 doc_event_list=doc_event_list,
                 query_event=query_event,
                 filter_single_candidate=filter_single_candidate,
-                filter_single_argument=filter_single_argument))
+                filter_single_argument=filter_single_argument,
+                query_type=query_type,
+                include_salience=include_salience,
+                include_coref_pred_pairs=include_coref_pred_pairs))
+
         return all_examples

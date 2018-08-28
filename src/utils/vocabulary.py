@@ -13,7 +13,7 @@ target_specials = ['TARGET-SUBJ', 'TARGET-OBJ', 'TARGET_PREP']
 
 
 def load_vocab(fname, fvocab=None, binary=True, normalize=True,
-               use_miss_specials=True, use_target_specials=False):
+               use_target_specials=True, use_miss_specials=True):
     word2vec = KeyedVectors.load_word2vec_format(
         fname=fname, fvocab=fvocab, binary=binary)
     if normalize:
@@ -29,10 +29,10 @@ def load_vocab(fname, fvocab=None, binary=True, normalize=True,
     dim = word2vec.vector_size
 
     specials = deepcopy(default_specials)
-    if use_miss_specials:
-        specials.extend(miss_specials)
     if use_target_specials:
         specials.extend(target_specials)
+    if use_miss_specials:
+        specials.extend(miss_specials)
 
     log.info('Building Vocab with {} words and specials = {}'.format(
         len(counter), specials))

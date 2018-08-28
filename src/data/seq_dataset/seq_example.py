@@ -8,426 +8,48 @@ from torchtext.data import Example
 
 class SeqExample(Example):
     def __init__(self, doc_input: List[int], query_input: List[int],
-                 doc_entity_ids: List[int], target_entity_id: int):
+                 doc_entity_ids: List[int], target_entity_id: int, **kwargs):
         # doc_entity_ids must have the same length as doc_input
         assert len(doc_entity_ids) == len(doc_input)
-        # # target_mask must have the same length as document_input
-        # assert len(target_mask) == len(document_input)
-        # # All 1s in target_mask must be a subset of the 1s in softmax_mask
-        # assert target_mask == [
-        #     ms * mt for ms, mt in zip(softmax_mask, target_mask)]
 
         self.doc_input = doc_input
         self.query_input = query_input
         self.doc_entity_ids = doc_entity_ids
         self.target_entity_id = target_entity_id
 
+        # additional information
+        if 'num_mentions_total' in kwargs:
+            assert len(kwargs['num_mentions_total']) == len(doc_input)
+        if 'num_mentions_named' in kwargs:
+            assert len(kwargs['num_mentions_named']) == len(doc_input)
+        if 'num_mentions_nominal' in kwargs:
+            assert len(kwargs['num_mentions_nominal']) == len(doc_input)
+        if 'num_mentions_pronominal' in kwargs:
+            assert len(kwargs['num_mentions_pronominal']) == len(doc_input)
+        if 'argument_mask' in kwargs:
+            assert len(kwargs['argument_mask']) == len(doc_input)
+        if 'neg_query_input' in kwargs:
+            assert len(kwargs['neg_query_input']) == len(query_input)
+
+        for key, val in kwargs.items():
+            setattr(self, key, val)
+
     def __str__(self):
-        return '({}, {}, {}, {})'.format(
-            self.doc_input, self.query_input, self.doc_entity_ids,
-            self.target_entity_id)
+        return str(self.__dict__)
 
     @classmethod
     def from_text(cls, text):
-        return cls(*eval(text))
-
-    @classmethod
-    def build(cls, doc_event_list, query_event, filter_single_candidate=True,
-              filter_single_argument=False):
-        examples = []
-
-        doc_input = [
-            token_id for seq_event in doc_event_list
-            for token_id in seq_event.token_id_list()]
-
-        doc_entity_ids = [
-            entity_id for seq_event in doc_event_list
-            for entity_id in seq_event.entity_id_list()]
-
-        # do not generate examples with a single candidate, when doc_entity_ids
-        # contain only 2 distinct numbers (with a -1 for predicate).
-        if filter_single_candidate and len(Counter(doc_entity_ids)) <= 2:
-            return examples
-
-        # softmax_mask = (doc_entity_ids != -1)
-
-        base_query_input = np.array(query_event.token_id_list())
-
-        arg_entity_mapping = {
-            arg_idx: seq_arg.entity_id
-            for arg_idx, seq_arg in enumerate(query_event.seq_arg_list)
-            if seq_arg.entity_id in doc_entity_ids}
-
-        if len(arg_entity_mapping) == 0:
-            return examples
-
-        if filter_single_argument and len(arg_entity_mapping) <= 1:
-            return examples
-
-        for arg_idx, seq_arg in enumerate(query_event.seq_arg_list):
-            target_entity_id = seq_arg.entity_id
-            if target_entity_id != -1 and \
-                    target_entity_id in doc_entity_ids:
-                query_input = base_query_input.copy()
-                # component_id is exactly the token id for MISS-SUBJ/OBJ/PREP
-                query_input[arg_idx + 1] = seq_arg.component_id
-                # target_mask = (doc_entity_ids == target_entity_id)
-
-                examples.append(cls(
-                    doc_input=doc_input,
-                    query_input=query_input.tolist(),
-                    doc_entity_ids=doc_entity_ids,
-                    target_entity_id=target_entity_id
-                ))
-
-        return examples
-
-    @classmethod
-    def build_single(
-            cls, doc_event_list, query_event, filter_single_candidate=True,
-            filter_single_argument=False):
-        examples = []
-
-        doc_input = [
-            token_id for seq_event in doc_event_list
-            for token_id in seq_event.token_id_list()]
-
-        doc_entity_ids = [
-            entity_id for seq_event in doc_event_list
-            for entity_id in seq_event.entity_id_list()]
-
-        # do not generate examples with a single candidate, when doc_entity_ids
-        # contain only 2 distinct numbers (with a -1 for predicate).
-        if filter_single_candidate and len(Counter(doc_entity_ids)) <= 2:
-            return examples
-
-        # softmax_mask = (doc_entity_ids != -1)
-
-        base_query_input = np.array(query_event.token_id_list())
-
-        arg_entity_mapping = {
-            arg_idx: seq_arg.entity_id
-            for arg_idx, seq_arg in enumerate(query_event.seq_arg_list)
-            if seq_arg.entity_id in doc_entity_ids}
-
-        if len(arg_entity_mapping) == 0:
-            return examples
-
-        if filter_single_argument and len(arg_entity_mapping) <= 1:
-            return examples
-
-        for arg_idx in arg_entity_mapping.keys():
-
-            query_input = base_query_input.copy()
-            query_input[arg_idx + 1] = \
-                query_event.seq_arg_list[arg_idx].component_id
-
-            query_input = np.delete(
-                query_input,
-                [i + 1 for i in arg_entity_mapping.keys() if i != arg_idx])
-
-            examples.append(cls(
-                doc_input=doc_input,
-                query_input=query_input.tolist(),
-                doc_entity_ids=doc_entity_ids,
-                target_entity_id=arg_entity_mapping[arg_idx],
-            ))
-
-        return examples
-
-
-class SeqExampleMultiHop(SeqExample):
-    def __init__(self, doc_input: List[int], query_input: List[int],
-                 doc_entity_ids: List[int], target_entity_id: int,
-                 argument_mask: List[int]):
-        super().__init__(
-            doc_input=doc_input,
-            query_input=query_input,
-            doc_entity_ids=doc_entity_ids,
-            target_entity_id=target_entity_id
-        )
-        assert len(argument_mask) == len(doc_input)
-        self.argument_mask = argument_mask
-
-    def __str__(self):
-        return '({}, {}, {}, {}, {})'.format(
-            self.doc_input, self.query_input, self.doc_entity_ids,
-            self.target_entity_id, self.argument_mask)
-
-    @classmethod
-    def from_text(cls, text):
-        return cls(*eval(text))
-
-    @classmethod
-    def build(cls, doc_event_list, query_event, filter_single_candidate=True,
-              filter_single_argument=False):
-        examples = []
-
-        doc_input = [
-            token_id for seq_event in doc_event_list
-            for token_id in seq_event.token_id_list()]
-
-        doc_entity_ids = [
-            entity_id for seq_event in doc_event_list
-            for entity_id in seq_event.entity_id_list()]
-
-        # do not generate examples with a single candidate, when doc_entity_ids
-        # contain only 2 distinct numbers (with a -1 for predicate).
-        if filter_single_candidate and len(Counter(doc_entity_ids)) <= 2:
-            return examples
-
-        # softmax_mask = (doc_entity_ids != -1)
-
-        base_query_input = np.array(query_event.token_id_list())
-
-        arg_entity_mapping = {
-            arg_idx: seq_arg.entity_id
-            for arg_idx, seq_arg in enumerate(query_event.seq_arg_list)
-            if seq_arg.entity_id in doc_entity_ids}
-
-        if len(arg_entity_mapping) == 0:
-            return examples
-
-        if filter_single_argument and len(arg_entity_mapping) <= 1:
-            return examples
-
-        argument_mask = [1 if entity_id in arg_entity_mapping.values() else 0
-                         for entity_id in doc_entity_ids]
-
-        for arg_idx in arg_entity_mapping.keys():
-
-            query_input = base_query_input.copy()
-            # component_id == 1 --> TARGET-SUBJ (4)
-            # component_id == 2 --> TARGET_OBJ (5)
-            # component_id == 3 --> TARGET_PREP (6)
-            query_input[arg_idx + 1] = \
-                query_event.seq_arg_list[arg_idx].component_id + 3
-
-            for miss_arg_idx in arg_entity_mapping.keys():
-                if miss_arg_idx != arg_idx:
-                    # component_id == 1 --> MISS-SUBJ (1)
-                    # component_id == 2 --> MISS-OBJ (2)
-                    # component_id == 3 --> MISS-PREP (3)
-                    query_input[miss_arg_idx + 1] = \
-                        query_event.seq_arg_list[miss_arg_idx].component_id
-
-            examples.append(cls(
-                doc_input=doc_input,
-                query_input=query_input.tolist(),
-                doc_entity_ids=doc_entity_ids,
-                target_entity_id=arg_entity_mapping[arg_idx],
-                argument_mask=argument_mask
-            ))
-
-        return examples
-
-
-class SeqExampleMultiArg(SeqExample):
-    def __init__(self, doc_input: List[int], query_input: List[int],
-                 doc_entity_ids: List[int], target_entity_id: int,
-                 neg_target_entity_id: int):
-        super().__init__(
-            doc_input=doc_input,
-            query_input=query_input,
-            doc_entity_ids=doc_entity_ids,
-            target_entity_id=target_entity_id)
-        self.neg_target_entity_id = neg_target_entity_id
-
-    def __str__(self):
-        return '({}, {}, {}, {}, {})'.format(
-            self.doc_input, self.query_input, self.doc_entity_ids,
-            self.target_entity_id, self.neg_target_entity_id)
-
-    @classmethod
-    def from_text(cls, text):
-        return cls(*eval(text))
-
-    @classmethod
-    def build(cls, doc_event_list, query_event, filter_single_candidate=True,
-              filter_single_argument=False):
-        examples = []
-
-        doc_input = [
-            token_id for seq_event in doc_event_list
-            for token_id in seq_event.token_id_list()]
-
-        doc_entity_ids = [
-            entity_id for seq_event in doc_event_list
-            for entity_id in seq_event.entity_id_list()]
-
-        # do not generate examples with a single candidate, when doc_entity_ids
-        # contain only 2 distinct numbers (with a -1 for predicate).
-        if filter_single_candidate and len(Counter(doc_entity_ids)) <= 2:
-            return examples
-
-        # softmax_mask = (doc_entity_ids != -1)
-
-        base_query_input = np.array(query_event.token_id_list())
-
-        arg_entity_mapping = {
-            arg_idx: seq_arg.entity_id
-            for arg_idx, seq_arg in enumerate(query_event.seq_arg_list)
-            if seq_arg.entity_id in doc_entity_ids}
-
-        if len(arg_entity_mapping) < 2:
-            return examples
-
-        for arg_idx_1, arg_idx_2 in combinations(
-                arg_entity_mapping.keys(), r=2):
-            if arg_entity_mapping[arg_idx_1] == arg_entity_mapping[arg_idx_2]:
-                continue
-
-            # use arg_idx_1 as positive and arg_idx_2 as negative
-            query_input = base_query_input.copy()
-            query_input[arg_idx_1 + 1] = \
-                query_event.seq_arg_list[arg_idx_1].component_id
-            query_input = np.delete(query_input, arg_idx_2 + 1)
-
-            examples.append(cls(
-                doc_input=doc_input,
-                query_input=query_input.tolist(),
-                doc_entity_ids=doc_entity_ids,
-                target_entity_id=arg_entity_mapping[arg_idx_1],
-                neg_target_entity_id=arg_entity_mapping[arg_idx_2]
-            ))
-
-            # use arg_idx_2 as positive and arg_idx_1 as negative
-            query_input = base_query_input.copy()
-            query_input[arg_idx_2 + 1] = \
-                query_event.seq_arg_list[arg_idx_2].component_id
-            query_input = np.delete(query_input, arg_idx_1 + 1)
-
-            examples.append(cls(
-                doc_input=doc_input,
-                query_input=query_input.tolist(),
-                doc_entity_ids=doc_entity_ids,
-                target_entity_id=arg_entity_mapping[arg_idx_2],
-                neg_target_entity_id=arg_entity_mapping[arg_idx_1]
-            ))
-
-        return examples
-
-
-class SeqExampleMultiSlot(SeqExample):
-    def __init__(self, doc_input: List[int], query_input: List[int],
-                 neg_query_input: List[int], doc_entity_ids: List[int],
-                 target_entity_id: int):
-        super().__init__(
-            doc_input=doc_input,
-            query_input=query_input,
-            doc_entity_ids=doc_entity_ids,
-            target_entity_id=target_entity_id)
-        assert len(neg_query_input) == len(query_input)
-        self.neg_query_input = neg_query_input
-
-    def __str__(self):
-        return '({}, {}, {}, {}, {})'.format(
-            self.doc_input, self.query_input, self.neg_query_input,
-            self.doc_entity_ids, self.target_entity_id)
-
-    @classmethod
-    def from_text(cls, text):
-        return cls(*eval(text))
-
-    @classmethod
-    def build(cls, doc_event_list, query_event, filter_single_candidate=True,
-              filter_single_argument=False):
-        examples = []
-
-        doc_input = [
-            token_id for seq_event in doc_event_list
-            for token_id in seq_event.token_id_list()]
-
-        doc_entity_ids = [
-            entity_id for seq_event in doc_event_list
-            for entity_id in seq_event.entity_id_list()]
-
-        # do not generate examples with a single candidate, when doc_entity_ids
-        # contain only 2 distinct numbers (with a -1 for predicate).
-        if filter_single_candidate and len(Counter(doc_entity_ids)) <= 2:
-            return examples
-
-        # softmax_mask = (doc_entity_ids != -1)
-
-        base_query_input = np.array(query_event.token_id_list())
-
-        arg_entity_mapping = {
-            arg_idx: seq_arg.entity_id
-            for arg_idx, seq_arg in enumerate(query_event.seq_arg_list)
-            if seq_arg.entity_id in doc_entity_ids}
-
-        if len(arg_entity_mapping) < 2:
-            return examples
-
-        for arg_idx_1, arg_idx_2 in combinations(
-                arg_entity_mapping.keys(), r=2):
-            target_entity_id_1 = arg_entity_mapping[arg_idx_1]
-            target_entity_id_2 = arg_entity_mapping[arg_idx_2]
-
-            if target_entity_id_1 == target_entity_id_2:
-                continue
-
-            # use arg_idx_1 as positive slot and arg_idx_2 as negative slot
-            query_input_1 = base_query_input.copy()
-            query_input_1[arg_idx_1 + 1] = \
-                query_event.seq_arg_list[arg_idx_1].component_id
-            query_input_1 = np.delete(query_input_1, arg_idx_2 + 1)
-
-            # use arg_idx_2 as positive slot and arg_idx_1 as negative slot
-            query_input_2 = base_query_input.copy()
-            query_input_2[arg_idx_2 + 1] = \
-                query_event.seq_arg_list[arg_idx_2].component_id
-            query_input_2 = np.delete(query_input_2, arg_idx_1 + 1)
-
-            examples.append(cls(
-                doc_input=doc_input,
-                query_input=query_input_1.tolist(),
-                neg_query_input=query_input_2.tolist(),
-                doc_entity_ids=doc_entity_ids,
-                target_entity_id=target_entity_id_1
-            ))
-
-            examples.append(cls(
-                doc_input=doc_input,
-                query_input=query_input_2.tolist(),
-                neg_query_input=query_input_1.tolist(),
-                doc_entity_ids=doc_entity_ids,
-                target_entity_id=target_entity_id_2
-            ))
-
-        return examples
-
-
-class SeqExampleWithSalience(SeqExample):
-    def __init__(self, doc_input: List[int], query_input: List[int],
-                 doc_entity_ids: List[int], target_entity_id: int,
-                 num_mentions_total: List[int], num_mentions_named: List[int],
-                 num_mentions_nominal: List[int],
-                 num_mentions_pronominal: List[int]):
-        super().__init__(
-            doc_input=doc_input,
-            query_input=query_input,
-            doc_entity_ids=doc_entity_ids,
-            target_entity_id=target_entity_id)
-        assert len(num_mentions_total) == len(doc_input)
-        self.num_mentions_total = num_mentions_total
-        assert len(num_mentions_named) == len(doc_input)
-        self.num_mentions_named = num_mentions_named
-        assert len(num_mentions_nominal) == len(doc_input)
-        self.num_mentions_nominal = num_mentions_nominal
-        assert len(num_mentions_pronominal) == len(doc_input)
-        self.num_mentions_pronominal = num_mentions_pronominal
-
-    def __str__(self):
-        return '({}, {}, {}, {}, {}, {}, {}, {})'.format(
-            self.doc_input, self.query_input, self.doc_entity_ids,
-            self.target_entity_id, self.num_mentions_total,
-            self.num_mentions_named, self.num_mentions_nominal,
-            self.num_mentions_pronominal)
-
-    @classmethod
-    def from_text(cls, text):
-        return cls(*eval(text))
+        return cls(**eval(text))
+
+    @staticmethod
+    def get_coref_event_pairs(doc_event_list):
+        coref_event_pairs = []
+
+        for i in range(len(doc_event_list)):
+            for j in range(i+1, len(doc_event_list)):
+                if doc_event_list[i].has_shared_arg(doc_event_list[j]):
+                    coref_event_pairs.append((i, j))
+        return coref_event_pairs
 
     @staticmethod
     def get_entity_salience(doc_event_list, doc_entity_ids):
@@ -460,9 +82,56 @@ class SeqExampleWithSalience(SeqExample):
 
         return kwargs
 
+    @staticmethod
+    def get_query_input(query_event, arg_idx, arg_entity_mapping,
+                        query_type='normal'):
+        assert query_type in ['normal', 'single_arg', 'multi_hop']
+
+        query_input = np.array(query_event.token_id_list())
+
+        # target component_id == 1 --> TARGET-SUBJ (1)
+        # target component_id == 2 --> TARGET-OBJ (2)
+        # target component_id == 3 --> TARGET-PREP (3)
+        query_input[arg_idx + 1] = \
+            query_event.seq_arg_list[arg_idx].component_id
+
+        if query_type == 'single_arg':
+            query_input = np.delete(
+                query_input,
+                [i + 1 for i in arg_entity_mapping.keys() if i != arg_idx])
+
+        if query_type == 'multi_hop':
+            for miss_arg_idx in arg_entity_mapping.keys():
+                if miss_arg_idx != arg_idx:
+                    # missing component_id == 1 --> MISS-SUBJ (4)
+                    # missing component_id == 2 --> MISS-OBJ (5)
+                    # missing component_id == 3 --> MISS-PREP (6)
+                    query_input[miss_arg_idx + 1] = \
+                        query_event.seq_arg_list[miss_arg_idx].component_id + 3
+
+        return list(query_input)
+
+    @staticmethod
+    def get_query_input_pair(query_event, arg_idx_1, arg_idx_2):
+        query_input_1 = np.array(query_event.token_id_list())
+        query_input_1[arg_idx_1 + 1] = \
+            query_event.seq_arg_list[arg_idx_1].component_id
+        query_input_1 = np.delete(query_input_1, arg_idx_2 + 1)
+
+        query_input_2 = np.array(query_event.token_id_list())
+        query_input_2[arg_idx_2 + 1] = \
+            query_event.seq_arg_list[arg_idx_2].component_id
+        query_input_2 = np.delete(query_input_2, arg_idx_1 + 1)
+
+        return list(query_input_1), list(query_input_2)
+
     @classmethod
     def build(cls, doc_event_list, query_event, filter_single_candidate=True,
-              filter_single_argument=False):
+              filter_single_argument=False, query_type='normal',
+              include_salience=False, include_coref_pred_pairs=False):
+        assert query_type in \
+               ['normal', 'single_arg', 'multi_hop', 'multi_arg', 'multi_slot']
+
         examples = []
 
         doc_input = [
@@ -473,17 +142,10 @@ class SeqExampleWithSalience(SeqExample):
             entity_id for seq_event in doc_event_list
             for entity_id in seq_event.entity_id_list()]
 
-        kwargs = SeqExampleWithSalience.get_entity_salience(
-            doc_event_list, doc_entity_ids)
-
         # do not generate examples with a single candidate, when doc_entity_ids
         # contain only 2 distinct numbers (with a -1 for predicate).
         if filter_single_candidate and len(Counter(doc_entity_ids)) <= 2:
             return examples
-
-        # softmax_mask = (doc_entity_ids != -1)
-
-        base_query_input = np.array(query_event.token_id_list())
 
         arg_entity_mapping = {
             arg_idx: seq_arg.entity_id
@@ -493,81 +155,96 @@ class SeqExampleWithSalience(SeqExample):
         if len(arg_entity_mapping) == 0:
             return examples
 
-        if filter_single_argument and len(arg_entity_mapping) <= 1:
-            return examples
+        if len(arg_entity_mapping) <= 1:
+            if (filter_single_argument or
+                    query_type in ['multi_arg', 'multi_slot']):
+                return examples
 
-        for arg_idx, seq_arg in enumerate(query_event.seq_arg_list):
-            target_entity_id = seq_arg.entity_id
-            if target_entity_id != -1 and \
-                    target_entity_id in doc_entity_ids:
-                query_input = base_query_input.copy()
-                # component_id is exactly the token id for MISS-SUBJ/OBJ/PREP
-                query_input[arg_idx + 1] = seq_arg.component_id
-                # target_mask = (doc_entity_ids == target_entity_id)
+        kwargs = {}
+
+        if include_salience:
+            kwargs.update(
+                cls.get_entity_salience(doc_event_list, doc_entity_ids))
+
+        if include_coref_pred_pairs:
+            coref_event_pairs = cls.get_coref_event_pairs(doc_event_list)
+            pred_idx_list = [
+                token_idx for token_idx, entity_id in enumerate(doc_entity_ids)
+                if entity_id == -1]
+            kwargs['coref_pred_1'] = \
+                [pred_idx_list[i] for i, _ in coref_event_pairs]
+            kwargs['coref_pred_2'] = \
+                [pred_idx_list[j] for _, j in coref_event_pairs]
+            # will cause error when the two fields of all examples
+            # within a batch are empty
+            if kwargs['coref_pred_1'] == []:
+                kwargs['coref_pred_1'] = [-1]
+                kwargs['coref_pred_2'] = [-1]
+
+        if query_type == 'multi_hop':
+            kwargs['argument_mask'] = [
+                1 if entity_id in arg_entity_mapping.values() else 0
+                for entity_id in doc_entity_ids]
+
+        if query_type in ['normal', 'single_arg', 'multi_hop']:
+            for arg_idx, target_entity_id in arg_entity_mapping.items():
+                query_input = cls.get_query_input(
+                    query_event, arg_idx, arg_entity_mapping,
+                    query_type=query_type)
 
                 examples.append(cls(
                     doc_input=doc_input,
-                    query_input=query_input.tolist(),
+                    query_input=query_input,
                     doc_entity_ids=doc_entity_ids,
                     target_entity_id=target_entity_id,
                     **kwargs
                 ))
 
-        return examples
+        else:
+            for arg_idx_1, arg_idx_2 in combinations(
+                    arg_entity_mapping.keys(), r=2):
+                target_entity_id_1 = arg_entity_mapping[arg_idx_1]
+                target_entity_id_2 = arg_entity_mapping[arg_idx_2]
 
-    @classmethod
-    def build_single(
-            cls, doc_event_list, query_event, filter_single_candidate=True,
-            filter_single_argument=False):
-        examples = []
+                if target_entity_id_1 == target_entity_id_2:
+                    continue
 
-        doc_input = [
-            token_id for seq_event in doc_event_list
-            for token_id in seq_event.token_id_list()]
+                query_input_1, query_input_2 = cls.get_query_input_pair(
+                    query_event, arg_idx_1, arg_idx_2)
 
-        doc_entity_ids = [
-            entity_id for seq_event in doc_event_list
-            for entity_id in seq_event.entity_id_list()]
-
-        kwargs = SeqExampleWithSalience.get_entity_salience(
-            doc_event_list, doc_entity_ids)
-
-        # do not generate examples with a single candidate, when doc_entity_ids
-        # contain only 2 distinct numbers (with a -1 for predicate).
-        if filter_single_candidate and len(Counter(doc_entity_ids)) <= 2:
-            return examples
-
-        # softmax_mask = (doc_entity_ids != -1)
-
-        base_query_input = np.array(query_event.token_id_list())
-
-        arg_entity_mapping = {
-            arg_idx: seq_arg.entity_id
-            for arg_idx, seq_arg in enumerate(query_event.seq_arg_list)
-            if seq_arg.entity_id in doc_entity_ids}
-
-        if len(arg_entity_mapping) == 0:
-            return examples
-
-        if filter_single_argument and len(arg_entity_mapping) <= 1:
-            return examples
-
-        for arg_idx in arg_entity_mapping.keys():
-
-            query_input = base_query_input.copy()
-            query_input[arg_idx + 1] = \
-                query_event.seq_arg_list[arg_idx].component_id
-
-            query_input = np.delete(
-                query_input,
-                [i + 1 for i in arg_entity_mapping.keys() if i != arg_idx])
-
-            examples.append(cls(
-                doc_input=doc_input,
-                query_input=query_input.tolist(),
-                doc_entity_ids=doc_entity_ids,
-                target_entity_id=arg_entity_mapping[arg_idx],
-                **kwargs
-            ))
+                if query_type == 'multi_arg':
+                    examples.append(cls(
+                        doc_input=doc_input,
+                        query_input=query_input_1,
+                        doc_entity_ids=doc_entity_ids,
+                        target_entity_id=target_entity_id_1,
+                        neg_target_entity_id=target_entity_id_2,
+                        **kwargs
+                    ))
+                    examples.append(cls(
+                        doc_input=doc_input,
+                        query_input=query_input_2,
+                        doc_entity_ids=doc_entity_ids,
+                        target_entity_id=target_entity_id_2,
+                        neg_target_entity_id=target_entity_id_1,
+                        **kwargs
+                    ))
+                else:
+                    examples.append(cls(
+                        doc_input=doc_input,
+                        query_input=query_input_1,
+                        doc_entity_ids=doc_entity_ids,
+                        target_entity_id=target_entity_id_1,
+                        neg_query_input=query_input_2,
+                        **kwargs
+                    ))
+                    examples.append(cls(
+                        doc_input=doc_input,
+                        query_input=query_input_2,
+                        doc_entity_ids=doc_entity_ids,
+                        target_entity_id=target_entity_id_2,
+                        neg_query_input=query_input_1,
+                        **kwargs
+                    ))
 
         return examples
