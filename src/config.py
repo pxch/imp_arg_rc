@@ -74,5 +74,18 @@ class DefaultConfig(object):
         'http://lair.cse.msu.edu/projects/implicit_argument_annotations.zip'
     gc_dataset_name = 'implicit_argument_annotations.xml'
 
+    @property
+    def word2vec_path(self):
+        return self.data_path / 'word2vec'
+
+    word2vec_name = 'min_500_dim300vecs'
+
+    @property
+    def on_scripts_path(self):
+        return self.data_path / 'ontonotes'
+
+    on_short_scripts_file = 'on_short_scripts.txt'
+    on_long_scripts_file = 'on_long_scripts.txt'
+
 
 cfg = DefaultConfig()
