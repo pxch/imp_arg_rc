@@ -1,125 +1,12 @@
 import bz2
 from pathlib import Path
 
-import torch
 from joblib import Parallel, delayed
-from torchtext.data import BucketIterator, Dataset, Field, Iterator
+from torchtext.data import BucketIterator, Dataset, Iterator
 
 from utils import log
 from .seq_example import SeqExample
-
-
-input_field = Field(
-    use_vocab=False,
-    tensor_type=torch.LongTensor,
-    include_lengths=True,
-    pad_token=0
-)
-
-doc_entity_ids_field = Field(
-    use_vocab=False,
-    tensor_type=torch.LongTensor,
-    include_lengths=False,
-    pad_token=-1
-)
-
-target_entity_id_field = Field(
-    sequential=False,
-    use_vocab=False,
-    tensor_type=torch.LongTensor,
-    include_lengths=False
-)
-
-num_mentions_field = Field(
-    use_vocab=False,
-    tensor_type=torch.LongTensor,
-    include_lengths=False,
-    pad_token=0
-)
-
-mask_field = Field(
-    use_vocab=False,
-    tensor_type=torch.ByteTensor,
-    include_lengths=False,
-    pad_token=0
-)
-
-coref_pred_field = Field(
-    use_vocab=False,
-    tensor_type=torch.LongTensor,
-    include_lengths=True,
-    pad_token=-1,
-    batch_first=True
-)
-
-
-def coref_pred_postprocessing(arr, _, __):
-    batch_indices = []
-    pred_indices = []
-    for batch_idx, x in enumerate(arr):
-        batch_indices.extend([batch_idx] * len(x))
-        pred_indices.extend(x)
-    return [batch_indices, pred_indices]
-
-
-coref_pred_1_field = Field(
-    sequential=False,
-    use_vocab=False,
-    tensor_type=torch.LongTensor,
-    include_lengths=False,
-    postprocessing=coref_pred_postprocessing
-)
-
-coref_pred_2_field = Field(
-    sequential=False,
-    use_vocab=False,
-    tensor_type=torch.LongTensor,
-    include_lengths=False,
-    postprocessing=lambda arr, _, __: [[val for x in arr for val in x]]
-)
-
-
-seq_fields = [
-    ('doc_input', input_field),
-    ('query_input', input_field),
-    ('doc_entity_ids', doc_entity_ids_field),
-    ('target_entity_id', target_entity_id_field)
-]
-
-multi_arg_seq_fields = [
-    ('doc_input', input_field),
-    ('query_input', input_field),
-    ('doc_entity_ids', doc_entity_ids_field),
-    ('target_entity_id', target_entity_id_field),
-    ('neg_target_entity_id', target_entity_id_field)
-]
-
-multi_slot_seq_fields = [
-    ('doc_input', input_field),
-    ('query_input', input_field),
-    ('neg_query_input', input_field),
-    ('doc_entity_ids', doc_entity_ids_field),
-    ('target_entity_id', target_entity_id_field)
-]
-
-seq_with_salience_fields = [
-    ('doc_input', input_field),
-    ('query_input', input_field),
-    ('doc_entity_ids', doc_entity_ids_field),
-    ('target_entity_id', target_entity_id_field),
-    ('num_mentions_total', num_mentions_field),
-    ('num_mentions_named', num_mentions_field),
-    ('num_mentions_nominal', num_mentions_field),
-    ('num_mentions_pronominal', num_mentions_field)
-]
-
-multi_hop_seq_fields = [
-    ('doc_input', input_field),
-    ('query_input', input_field),
-    ('doc_entity_ids', doc_entity_ids_field),
-    ('target_entity_id', target_entity_id_field),
-    ('argument_mask', mask_field)
-]
+from .seq_fields import *
 
 
 def get_fields(query_type='normal', include_salience=False,
