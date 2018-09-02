@@ -42,14 +42,26 @@ class SeqExample(Example):
         return cls(**eval(text))
 
     @staticmethod
-    def get_coref_event_pairs(doc_event_list):
-        coref_event_pairs = []
+    def get_coref_pred_pairs(doc_event_list, doc_entity_ids):
+        pred_idx_list = [
+            token_idx for token_idx, entity_id in enumerate(doc_entity_ids)
+            if entity_id == -1]
+
+        kwargs = {'coref_pred_1': [], 'coref_pred_2': []}
 
         for i in range(len(doc_event_list)):
             for j in range(i+1, len(doc_event_list)):
                 if doc_event_list[i].has_shared_arg(doc_event_list[j]):
-                    coref_event_pairs.append((i, j))
-        return coref_event_pairs
+                    kwargs['coref_pred_1'].append(pred_idx_list[i])
+                    kwargs['coref_pred_2'].append(pred_idx_list[j])
+
+        # will cause error when the two fields of all examples
+        # within a batch are empty
+        if len(kwargs['coref_pred_1']) == 0:
+            kwargs['coref_pred_1'] = [-1]
+            kwargs['coref_pred_2'] = [-1]
+
+        return kwargs
 
     @staticmethod
     def get_entity_salience(doc_event_list, doc_entity_ids):
@@ -167,19 +179,8 @@ class SeqExample(Example):
                 cls.get_entity_salience(doc_event_list, doc_entity_ids))
 
         if include_coref_pred_pairs:
-            coref_event_pairs = cls.get_coref_event_pairs(doc_event_list)
-            pred_idx_list = [
-                token_idx for token_idx, entity_id in enumerate(doc_entity_ids)
-                if entity_id == -1]
-            kwargs['coref_pred_1'] = \
-                [pred_idx_list[i] for i, _ in coref_event_pairs]
-            kwargs['coref_pred_2'] = \
-                [pred_idx_list[j] for _, j in coref_event_pairs]
-            # will cause error when the two fields of all examples
-            # within a batch are empty
-            if kwargs['coref_pred_1'] == []:
-                kwargs['coref_pred_1'] = [-1]
-                kwargs['coref_pred_2'] = [-1]
+            kwargs.update(
+                cls.get_coref_pred_pairs(doc_event_list, doc_entity_ids))
 
         if query_type == 'multi_hop':
             kwargs['argument_mask'] = [
