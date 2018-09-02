@@ -299,13 +299,13 @@ if __name__ == '__main__':
 
     log.info(
         'Training with neg_loss_type = {}, regularization = {}, use_sum = {}, '
-        'use_sigmoid = {}, backward_self_attn_loss = {}, '
-        'backward_first_hop_attn_loss = {}, max_grad_norm = {}, '
-        'log_every = {}, val_every = {}'.format(
+        'use_sigmoid = {}, self_attn_target_for_pred = {}, '
+        'backward_self_attn_loss = {}, backward_first_hop_attn_loss = {}, '
+        'max_grad_norm = {}, log_every = {}, val_every = {}'.format(
             args.neg_loss_type, args.regularization, args.use_sum,
-            args.use_sigmoid, args.backward_self_attn_loss,
-            args.backward_first_hop_attn_loss, args.max_grad_norm,
-            args.log_every, args.val_every))
+            args.use_sigmoid, args.self_attn_target_for_pred,
+            args.backward_self_attn_loss, args.backward_first_hop_attn_loss,
+            args.max_grad_norm, args.log_every, args.val_every))
 
     _ = validate(
         pointer_net, validation_iter,
