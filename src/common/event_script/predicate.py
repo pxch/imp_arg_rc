@@ -58,7 +58,18 @@ class Predicate(Token):
 
     @classmethod
     def from_text(cls, text):
-        match = cls.pred_re.match(text)
+        parts = text.split('-')
+        if len(parts) == 3:
+            sentnum = int(parts[0])
+            wordnum = int(parts[1])
+            content_text = parts[2]
+        else:
+            assert len(parts) == 1
+            sentnum = -1
+            wordnum = -1
+            content_text = parts[0]
+
+        match = cls.pred_re.match(content_text)
         assert match, 'cannot parse Predicate from {}'.format(text)
         groups = match.groupdict()
 
@@ -68,7 +79,8 @@ class Predicate(Token):
         neg = True if groups['neg'] is not None else False
         prt = unescape(groups['prt']) if groups['prt'] is not None else ''
 
-        return cls(word, lemma, pos, neg=neg, prt=prt)
+        return cls(word, lemma, pos, neg=neg, prt=prt,
+                   sentnum=sentnum, wordnum=wordnum)
 
     @classmethod
     def from_token(cls, token: document.Token, **kwargs):

@@ -64,14 +64,25 @@ class SeqExample(Example):
         return kwargs
 
     @staticmethod
-    def get_entity_salience(doc_event_list, doc_entity_ids):
+    def get_entity_salience(doc_event_list, doc_entity_ids,
+                            use_additional_coref=True):
+        if use_additional_coref:
+            doc_entity_ids_for_salience = [
+                entity_id for seq_event in doc_event_list
+                for entity_id in seq_event.additional_entity_id_list()]
+        else:
+            doc_entity_ids_for_salience = doc_entity_ids
+
         entity_salience_mapping = {}
-        for entity_id in doc_entity_ids:
+        for entity_id in doc_entity_ids_for_salience:
             if entity_id not in entity_salience_mapping:
                 entity_salience_mapping[entity_id] = [0, 0, 0, 0]
         for seq_event in doc_event_list:
             for seq_arg in seq_event.seq_arg_list:
-                entity_id = seq_arg.entity_id
+                if use_additional_coref:
+                    entity_id = seq_arg.additional_entity_id
+                else:
+                    entity_id = seq_arg.entity_id
                 mention_type = seq_arg.mention_type
                 if mention_type != 0:
                     entity_salience_mapping[entity_id][mention_type] += 1
@@ -81,16 +92,16 @@ class SeqExample(Example):
 
         kwargs['num_mentions_total'] = \
             [entity_salience_mapping[entity_id][0]
-             for entity_id in doc_entity_ids]
+             for entity_id in doc_entity_ids_for_salience]
         kwargs['num_mentions_named'] = \
             [entity_salience_mapping[entity_id][1]
-             for entity_id in doc_entity_ids]
+             for entity_id in doc_entity_ids_for_salience]
         kwargs['num_mentions_nominal'] = \
             [entity_salience_mapping[entity_id][2]
-             for entity_id in doc_entity_ids]
+             for entity_id in doc_entity_ids_for_salience]
         kwargs['num_mentions_pronominal'] = \
             [entity_salience_mapping[entity_id][3]
-             for entity_id in doc_entity_ids]
+             for entity_id in doc_entity_ids_for_salience]
 
         return kwargs
 
@@ -140,7 +151,8 @@ class SeqExample(Example):
     @classmethod
     def build(cls, doc_event_list, query_event, filter_single_candidate=True,
               filter_single_argument=False, query_type='normal',
-              include_salience=False, include_coref_pred_pairs=False):
+              include_salience=False, include_coref_pred_pairs=False,
+              use_additional_coref=False):
         assert query_type in \
                ['normal', 'single_arg', 'multi_hop', 'multi_arg', 'multi_slot']
 
@@ -175,8 +187,9 @@ class SeqExample(Example):
         kwargs = {}
 
         if include_salience:
-            kwargs.update(
-                cls.get_entity_salience(doc_event_list, doc_entity_ids))
+            kwargs.update(cls.get_entity_salience(
+                doc_event_list, doc_entity_ids,
+                use_additional_coref=use_additional_coref))
 
         if include_coref_pred_pairs:
             kwargs.update(

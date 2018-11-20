@@ -10,7 +10,8 @@ from .token import Token
 
 class Argument(Token):
     def __init__(self, word, lemma, pos, sentnum=-1, wordnum=-1,
-                 ner='', entity_idx=-1, mention_idx=-1):
+                 ner='', entity_idx=-1, mention_idx=-1,
+                 additional_entity_idx=-1, additional_mention_idx=-1):
         super(Argument, self).__init__(word, lemma, pos, sentnum, wordnum)
 
         # name entity tag of the argument, default is empty
@@ -31,6 +32,9 @@ class Argument(Token):
         assert (not self.has_entity()) or mention_idx >= 0, \
             'mention_idx cannot be -1 when entity_idx is not -1'
         self._mention_idx = mention_idx
+
+        self.additional_entity_idx = additional_entity_idx
+        self.additional_mention_idx = additional_mention_idx
 
     @property
     def ner(self):
@@ -98,11 +102,15 @@ class Argument(Token):
         text += '/{}'.format(self.ner if self.ner != '' else 'NONE')
         if self.has_entity():
             text += '//entity-{}-{}'.format(self.entity_idx, self.mention_idx)
+        if self.additional_entity_idx >= 0:
+            text += '//a-entity-{}-{}'.format(
+                self.additional_entity_idx, self.additional_mention_idx)
         return '{}-{}-{}'.format(self.sentnum, self.wordnum, text)
 
     arg_re = re.compile(
         r'^(?P<word>[^/]*)/(?P<lemma>[^/]*)/(?P<pos>[^/]*)/(?P<ner>[^/]*)'
-        r'((?://entity-)(?P<entity_idx>\d+)(?:-)(?P<mention_idx>\d+))?$')
+        r'((?://entity-)(?P<entity_idx>\d+)(?:-)(?P<mention_idx>\d+))?'
+        r'((?://a-entity-)(?P<a_entity_idx>\d+)(?:-)(?P<a_mention_idx>\d+))?$')
 
     @classmethod
     def from_text(cls, text):
@@ -117,9 +125,15 @@ class Argument(Token):
         entity_idx = int(groups['entity_idx']) if groups['entity_idx'] else -1
         mention_idx = \
             int(groups['mention_idx']) if groups['mention_idx'] else -1
+        additional_entity_idx = \
+            int(groups['a_entity_idx']) if groups['a_entity_idx'] else -1
+        additional_mention_idx = \
+            int(groups['a_mention_idx']) if groups['a_mention_idx'] else -1
 
         return cls(word, lemma, pos,
-                   ner=ner, entity_idx=entity_idx, mention_idx=mention_idx)
+                   ner=ner, entity_idx=entity_idx, mention_idx=mention_idx,
+                   additional_entity_idx=additional_entity_idx,
+                   additional_mention_idx=additional_mention_idx)
 
     @classmethod
     def from_token(cls, token: document.Token):
@@ -133,5 +147,10 @@ class Argument(Token):
         sentnum = token.sent_idx
         wordnum = token.token_idx
 
-        return cls(word, lemma, pos, sentnum, wordnum,
-                   ner, entity_idx, mention_idx)
+        additional_entity_idx = token.additional_coref_idx
+        additional_mention_idx = token.additional_mention_idx
+
+        return cls(word, lemma, pos, sentnum=sentnum, wordnum=wordnum, ner=ner,
+                   entity_idx=entity_idx, mention_idx=mention_idx,
+                   additional_entity_idx=additional_entity_idx,
+                   additional_mention_idx=additional_mention_idx)

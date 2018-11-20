@@ -97,6 +97,22 @@ class Document(object):
             if coref.rep_mention is None:
                 coref.find_rep_mention()
 
+    def add_additional_coref_info(self, corefs):
+        for coref in corefs:
+            for mention in coref.mentions:
+                if 0 <= mention.sent_idx < self.num_sents:
+                    sent = self.sents[mention.sent_idx]
+                    if 0 <= mention.head_token_idx < sent.num_tokens:
+                        head_token = sent.tokens[mention.head_token_idx]
+                        head_token.add_additional_coref_info(coref, mention)
+                    else:
+                        print('mention.head_token_idx {} out of range'.format(
+                            mention.head_token_idx))
+                        continue
+                else:
+                    print('mention.sent_idx {} out of range'.format(
+                        mention.sent_idx))
+
     @classmethod
     def construct(cls, doc_name, sents, corefs):
         doc = cls(doc_name)

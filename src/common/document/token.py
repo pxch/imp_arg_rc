@@ -27,6 +27,10 @@ class Token(object):
         # the mention where the token belongs to
         self._mention = None
 
+        # additional coref info for distinguish between gold and corenlp coref
+        self.additional_coref_idx = -1
+        self.additional_mention_idx = -1
+
     @property
     def word(self):
         return self._word
@@ -101,6 +105,10 @@ class Token(object):
                     'mention, override existing mention'.format(mention))
         self._coref = coref
         self._mention = mention
+
+    def add_additional_coref_info(self, coref, mention):
+        self.additional_coref_idx = coref.idx
+        self.additional_mention_idx = mention.mention_idx
 
     def __str__(self):
         return '{}/{}/{}'.format(self.word, self.lemma, self.pos)

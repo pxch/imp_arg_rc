@@ -16,7 +16,7 @@ def prepare_dataset(
         script_corpus, vocab, prep_vocab_list, stop_pred_ids,
         filter_single_argument=False, query_type='normal',
         include_salience=False, use_bucket=True, device=None, batch_size=8,
-        sort_query=False):
+        sort_query=False, use_additional_coref=False):
     examples = []
     for script in script_corpus.scripts:
         seq_script = SeqScript.build(
@@ -24,12 +24,14 @@ def prepare_dataset(
             prep_vocab_list=prep_vocab_list,
             filter_repetitive_prep=True)
         seq_script.process_singletons()
+        seq_script.process_singletons_additional()
         examples.extend(seq_script.get_all_examples(
             stop_pred_ids=stop_pred_ids,
             filter_single_candidate=True,
             filter_single_argument=filter_single_argument,
             query_type=query_type,
-            include_salience=include_salience))
+            include_salience=include_salience,
+            use_additional_coref=use_additional_coref))
 
     dataset = build_dataset(
         examples, query_type=query_type, include_salience=include_salience)
@@ -72,6 +74,7 @@ def main():
     parser.add_argument('--sort_query', action='store_true',
                         help='Sort examples by both document length and '
                              'query length')
+    parser.add_argument('--use_additional_coref', action='store_true')
 
     # arguments for document/query encoders
     parser.add_argument('--hidden_size', help='Size of hidden state in GRU',
@@ -165,7 +168,8 @@ def main():
         filter_single_argument=args.filter_single_argument,
         query_type=args.query_type, include_salience=args.use_salience,
         use_bucket=args.use_bucket, device=args.device,
-        batch_size=args.batch_size, sort_query=args.sort_query)
+        batch_size=args.batch_size, sort_query=args.sort_query,
+        use_additional_coref=args.use_additional_coref)
 
     on_long_path = args.on_long_path
     if not on_long_path:
@@ -178,7 +182,8 @@ def main():
         filter_single_argument=args.filter_single_argument,
         query_type=args.query_type, include_salience=args.use_salience,
         use_bucket=args.use_bucket, device=args.device,
-        batch_size=args.batch_size, sort_query=args.sort_query)
+        batch_size=args.batch_size, sort_query=args.sort_query,
+        use_additional_coref=args.use_additional_coref)
 
     vocab_size, input_size = vocab.vectors.shape
 

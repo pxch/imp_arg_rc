@@ -95,7 +95,8 @@ class SeqPredicate(SeqEventComponent):
 
 class SeqArgument(SeqEventComponent):
     def __init__(self, token_id: int, component_id: int, wordnum: int,
-                 entity_id: int, mention_id: int, mention_type: int):
+                 entity_id: int, mention_id: int, mention_type: int,
+                 additional_entity_id: int, additional_mention_id: int):
         super().__init__(token_id, component_id, wordnum)
         self.entity_id = entity_id
         self.mention_id = mention_id
@@ -103,6 +104,9 @@ class SeqArgument(SeqEventComponent):
         # or 3 (pronominal), depending on the POS / NER of the token.
         assert mention_type in [0, 1, 2, 3]
         self.mention_type = mention_type
+
+        self.additional_entity_id = additional_entity_id
+        self.additional_mention_id = additional_mention_id
 
     @staticmethod
     def get_candidates(text, arg_type):
@@ -157,7 +161,9 @@ class SeqArgument(SeqEventComponent):
                    wordnum=argument.wordnum,
                    entity_id=argument.entity_idx,
                    mention_id=argument.mention_idx,
-                   mention_type=mention_type)
+                   mention_type=mention_type,
+                   additional_entity_id=argument.additional_entity_idx,
+                   additional_mention_id=argument.additional_mention_idx)
 
     def to_tuple(self):
         return self.token_id, self.component_id, self.wordnum, \
@@ -281,6 +287,12 @@ class SeqEvent(object):
             result = [-1] + result
         return result
 
+    def additional_entity_id_list(self, include_pred=True):
+        result = [seq_arg.additional_entity_id for seq_arg in self.seq_arg_list]
+        if include_pred:
+            result = [-1] + result
+        return result
+
     def has_shared_arg(self, other):
         return not set(self.entity_id_list(include_pred=False)).isdisjoint(
             set(other.entity_id_list(include_pred=False)))
@@ -293,11 +305,52 @@ class SeqScript(object):
         self.entity_id_mapping_rev = {}
         self.singleton_processed = False
 
+        self.additional_entity_id_mapping = {}
+        self.additional_entity_id_mapping_rev = {}
+        self.singleton_processed_additional = False
+
     def __eq__(self, other):
         return self.to_list() == other.to_list()
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+    def process_singletons_additional(self):
+        if not self.singleton_processed_additional:
+            # mapping from original entity_id to new entity_id for entities
+            entity_id_mapping = {}
+            # number of singletons already processed
+            singleton_count = 0
+            # number of entities already processed
+            entity_count = 0
+            for seq_event in self.seq_event_list:
+                for seq_arg in seq_event.seq_arg_list:
+                    # if the argument is an entity
+                    if seq_arg.additional_entity_id != -1:
+                        entity_id = seq_arg.additional_entity_id
+                        # if the entity_id has not been processed before
+                        if entity_id not in entity_id_mapping:
+                            # assign the new entity_id
+                            entity_id_mapping[entity_id] = \
+                                entity_count + singleton_count
+                            # increase entity_count
+                            entity_count += 1
+                        seq_arg.additional_entity_id = entity_id_mapping[entity_id]
+                    # if the argument is a singleton
+                    else:
+                        # assign the pseudo entity_id
+                        seq_arg.additional_entity_id = \
+                            len(entity_id_mapping) + singleton_count
+                        # assign the pseudo mention_id (0)
+                        seq_arg.additional_mention_id = 0
+                        # increase singleton_count
+                        singleton_count += 1
+
+            self.singleton_processed_additional = True
+            self.additional_entity_id_mapping = entity_id_mapping
+            # store the reverse mapping for convenient restoration.
+            self.additional_entity_id_mapping_rev = \
+                {val: key for key, val in entity_id_mapping.items()}
 
     def process_singletons(self):
         if not self.singleton_processed:
@@ -386,7 +439,8 @@ class SeqScript(object):
     def get_all_examples(
             self, stop_pred_ids=None, filter_single_candidate=True,
             filter_single_argument=False, query_type='normal',
-            include_salience=False, include_coref_pred_pairs=False):
+            include_salience=False, include_coref_pred_pairs=False,
+            use_additional_coref=True):
         all_examples = []
 
         # start the query from the second not-down-sampled event
@@ -423,6 +477,7 @@ class SeqScript(object):
                 filter_single_argument=filter_single_argument,
                 query_type=query_type,
                 include_salience=include_salience,
-                include_coref_pred_pairs=include_coref_pred_pairs))
+                include_coref_pred_pairs=include_coref_pred_pairs,
+                use_additional_coref=use_additional_coref))
 
         return all_examples
